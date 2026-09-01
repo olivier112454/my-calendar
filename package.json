@@ -8,6 +8,7 @@
     "dev:db": "node scripts/dev-postgres.mjs",
     "build": "next build",
     "start": "next start",
+    "postinstall": "prisma generate",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

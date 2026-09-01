@@ -1,0 +1,75 @@
+name: Reminders
+
+# Nothing in the app fires on its own: a scheduler has to call the job endpoint.
+# This is that scheduler. It lives here rather than in a third-party cron service
+# so JOBS_SECRET never leaves an account you already control.
+#
+# Vercel's free plan allows only one cron run per day, which is useless for
+# reminders — hence GitHub. Its scheduler is best-effort and can run a few
+# minutes late under load; reminders are sent for a window rather than an
+# instant, so a late run still delivers instead of skipping.
+#
+# Needs two repository secrets (Settings → Secrets and variables → Actions):
+#   APP_URL      https://your-app.vercel.app
+#   JOBS_SECRET  the same value as the app's JOBS_SECRET
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  # So it can be tried by hand from the Actions tab.
+  workflow_dispatch:
+
+# An overlapping run wastes both; keep the newer one.
+concurrency:
+  group: reminders
+  cancel-in-progress: true
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fire due reminders
+        run: |
+          status=$(curl --silent --show-error \
+            --max-time 60 \
+            --write-out '%{http_code}' --output /tmp/body.txt \
+            -X POST \
+            -H "Authorization: Bearer ${{ secrets.JOBS_SECRET }}" \
+            "${{ secrets.APP_URL }}/api/jobs/run?job=reminders") || true
+          echo "HTTP $status"
+          cat /tmp/body.txt || true
+          echo
+          # Fail loudly: a quietly broken scheduler means quietly no reminders.
+          test "$status" = "200"
+
+      # The slower jobs ride along on the first run of each hour rather than
+      # needing a second workflow with its own schedule.
+      - name: Hourly work
+        if: ${{ success() }}
+        run: |
+          if [ "$(date -u +%M)" -ge 5 ]; then
+            echo "not the top of the hour — skipping"
+            exit 0
+          fi
+          for job in tasks agenda; do
+            echo "--- $job"
+            curl --silent --show-error --max-time 60 \
+              -X POST \
+              -H "Authorization: Bearer ${{ secrets.JOBS_SECRET }}" \
+              "${{ secrets.APP_URL }}/api/jobs/run?job=$job" || true
+            echo
+          done
+
+      - name: Nightly housekeeping
+        if: ${{ success() }}
+        run: |
+          if [ "$(date -u +%H)" != "03" ] || [ "$(date -u +%M)" -ge 5 ]; then
+            echo "not the nightly window — skipping"
+            exit 0
+          fi
+          curl --silent --show-error --max-time 120 \
+            -X POST \
+            -H "Authorization: Bearer ${{ secrets.JOBS_SECRET }}" \
+            "${{ secrets.APP_URL }}/api/jobs/run?job=maintenance" || true
+          echo
