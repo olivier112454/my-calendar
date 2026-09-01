@@ -268,10 +268,24 @@
   }
 
   /* Long user text (event titles, addresses) must wrap rather than overflow its
-     block — a truncated title in a calendar chip is a bug, not a style. */
+     block — a truncated title in a calendar chip is a bug, not a style.
+     `break-word` rather than `anywhere`: both break a word that cannot fit on a
+     line of its own, but `anywhere` also offers those break points to intrinsic
+     sizing, which lets a flex or grid track collapse to the width of a single
+     character and shreds ordinary words down the column. */
   .break-user-text {
-    overflow-wrap: anywhere;
-    word-break: break-word;
+    overflow-wrap: break-word;
+  }
+
+  /* Calendar chips are only as wide as the column they sit in, and a week on a
+     laptop leaves each column a few dozen pixels. Breaking inside words there
+     turned "Focus block" into "Foc / us / bloc / k", so words stay whole: lines
+     break at spaces, and a single word too wide for the chip is clipped. The
+     whole title stays reachable through the chip's title and aria-label. */
+  .break-title-only-at-spaces {
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: none;
   }
 }
 

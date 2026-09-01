@@ -14,6 +14,10 @@ import type { EventOccurrence } from '@/types/domain'
  * lets the title use them — a title that is cut short while there is empty space
  * below it is a bug, not a style choice. The full title is always available to
  * assistive technology and on hover.
+ *
+ * Width is the other half of that: a week column can be a few dozen pixels wide,
+ * so the title breaks at spaces only. Letting it break mid-word fills those
+ * lines with fragments of one word instead of the start of the title.
  */
 
 /** Below this height the handles would cover the whole block. */
@@ -121,7 +125,7 @@ export const EventChip = React.memo(function EventChip({
               <ChipIcons event={event} />
             </span>
             <span
-              className="break-user-text text-[11px] font-medium leading-[15px]"
+              className="break-title-only-at-spaces text-[11px] font-medium leading-[15px]"
               style={{
                 display: '-webkit-box',
                 WebkitLineClamp: titleLines,
