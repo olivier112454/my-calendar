@@ -1,0 +1,396 @@
+@import 'tailwindcss';
+
+/* Dark mode is driven by a class on <html>, set before paint by the inline
+   script in layout.tsx, so there is never a flash of the wrong theme. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ===========================================================================
+   Design tokens
+
+   One neutral scale, one accent. The accent is a single CSS variable that
+   Settings rewrites at runtime; every tint derives from it through color-mix,
+   so changing the accent needs no rebuild and no second palette.
+
+   The neutrals are slightly cool and deliberately low-contrast against each
+   other: surfaces separate through hairline borders, not through heavy fills
+   or shadows.
+   =========================================================================== */
+
+:root {
+  --bg: #fbfbfc;
+  --surface: #ffffff;
+  --surface-2: #f4f4f6;
+  --surface-3: #ebebef;
+  --border: #e5e5ea;
+  --border-strong: #d3d3da;
+
+  --fg: #16161a;
+  --fg-muted: #63636f;
+  --fg-subtle: #8e8e99;
+  --fg-inverted: #ffffff;
+
+  --accent: #4f46e5;
+  --accent-fg: #ffffff;
+
+  --danger: #dc2626;
+  --danger-fg: #ffffff;
+  --success: #15803d;
+  --warning: #b45309;
+
+  /* Grid lines in the time views are lighter than component borders, so an
+     hour rule never competes with a panel edge. */
+  --grid-line: #ececf0;
+  --grid-line-strong: #dededf;
+  --weekend-tint: #f7f7f9;
+
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+
+  --shadow-sm: 0 1px 2px 0 rgb(16 16 26 / 0.05);
+  --shadow-md: 0 2px 8px -2px rgb(16 16 26 / 0.08), 0 1px 3px -1px rgb(16 16 26 / 0.06);
+  --shadow-lg: 0 12px 32px -8px rgb(16 16 26 / 0.14), 0 2px 8px -2px rgb(16 16 26 / 0.08);
+
+  --header-h: 3.25rem;
+  --sidebar-w: 15.5rem;
+  --rightpanel-w: 20rem;
+
+  color-scheme: light;
+}
+
+.dark {
+  --bg: #0b0b0e;
+  --surface: #131317;
+  --surface-2: #1b1b20;
+  --surface-3: #24242b;
+  --border: #26262d;
+  --border-strong: #35353e;
+
+  --fg: #ededf0;
+  --fg-muted: #9c9ca7;
+  --fg-subtle: #71717c;
+  --fg-inverted: #0b0b0e;
+
+  --accent-fg: #ffffff;
+
+  --danger: #f0616d;
+  --danger-fg: #17070a;
+  --success: #4ade80;
+  --warning: #fbbf24;
+
+  --grid-line: #1f1f25;
+  --grid-line-strong: #2c2c34;
+  --weekend-tint: #0f0f13;
+
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.4);
+  --shadow-md: 0 2px 8px -2px rgb(0 0 0 / 0.5), 0 1px 3px -1px rgb(0 0 0 / 0.4);
+  --shadow-lg: 0 16px 40px -12px rgb(0 0 0 / 0.7), 0 2px 8px -2px rgb(0 0 0 / 0.5);
+
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-fg-inverted: var(--fg-inverted);
+
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: color-mix(in oklab, var(--accent) 12%, transparent);
+  --color-accent-hover: color-mix(in oklab, var(--accent) 88%, black);
+
+  --color-danger: var(--danger);
+  --color-danger-fg: var(--danger-fg);
+  --color-danger-soft: color-mix(in oklab, var(--danger) 12%, transparent);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-warning-soft: color-mix(in oklab, var(--warning) 14%, transparent);
+
+  --color-grid-line: var(--grid-line);
+  --color-grid-line-strong: var(--grid-line-strong);
+  --color-weekend-tint: var(--weekend-tint);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system,
+    'Segoe UI', sans-serif;
+
+  /* A calendar is a table of numbers. Lining figures keep every time label the
+     same width so the gutter and the event chips never shimmer while scrolling. */
+  --default-font-feature-settings: 'cv02', 'cv03', 'cv04', 'tnum';
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* A visible, consistent focus ring everywhere. Never removed — only replaced
+     by :focus-visible so it does not appear on mouse clicks. */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']) {
+    cursor: pointer;
+  }
+
+  /* Inputs stay at 16px on touch devices; anything smaller makes iOS Safari
+     zoom the whole page when the field takes focus. */
+  @media (pointer: coarse) {
+    input,
+    select,
+    textarea {
+      font-size: 16px;
+    }
+
+    /* Touch targets reach 44x44 without changing the visual box: the padding
+       is added through a pseudo-element, so dense toolbars keep their layout. */
+    button,
+    [role='button'],
+    a[data-touch-target],
+    [role='checkbox'],
+    [role='switch'] {
+      position: relative;
+    }
+    button::after,
+    [role='button']::after,
+    a[data-touch-target]::after,
+    [role='checkbox']::after,
+    [role='switch']::after {
+      content: '';
+      position: absolute;
+      inset: 50% auto auto 50%;
+      translate: -50% -50%;
+      min-width: 44px;
+      min-height: 44px;
+      width: 100%;
+      height: 100%;
+    }
+    /* Menu items are already tall and full-width; the halo would overlap
+       neighbours and steal their taps. */
+    [role='menuitem']::after,
+    [role='option']::after,
+    [role='tab']::after {
+      content: none;
+    }
+  }
+
+  ::placeholder {
+    color: var(--fg-subtle);
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--accent) 24%, transparent);
+  }
+
+  [hidden] {
+    display: none !important;
+  }
+}
+
+@layer utilities {
+  /* Thin, unobtrusive scrollbars that only darken on hover. The calendar has a
+     lot of scroll containers and default bars make it look busy. */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: transparent;
+    border-radius: 9999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  .scrollbar-thin:hover::-webkit-scrollbar-thumb {
+    background-color: var(--border-strong);
+  }
+
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Respects the iPhone home indicator without hard-coding a height. */
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .pt-safe {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  .h-safe-bottom {
+    height: env(safe-area-inset-bottom, 0px);
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* Long user text (event titles, addresses) must wrap rather than overflow its
+     block — a truncated title in a calendar chip is a bug, not a style. */
+  .break-user-text {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+}
+
+/* ===========================================================================
+   Motion
+
+   Short and functional: panels and popovers get 120–180ms, nothing else moves.
+   Everything collapses to its end state under reduced motion.
+   =========================================================================== */
+
+@keyframes df-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes df-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+@keyframes df-slide-from-right {
+  from {
+    transform: translateX(0.75rem);
+    opacity: 0;
+  }
+}
+@keyframes df-slide-from-bottom {
+  from {
+    transform: translateY(0.5rem);
+    opacity: 0;
+  }
+}
+
+@layer utilities {
+  .animate-fade-in {
+    animation: df-fade-in 140ms ease-out;
+  }
+  .animate-scale-in {
+    animation: df-scale-in 140ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .animate-slide-from-right {
+    animation: df-slide-from-right 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .animate-slide-from-bottom {
+    animation: df-slide-from-bottom 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* The same switch, but user-controlled from Settings → Appearance. */
+html[data-reduce-motion='true'] *,
+html[data-reduce-motion='true'] *::before,
+html[data-reduce-motion='true'] *::after {
+  animation-duration: 0.01ms !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* ===========================================================================
+   Calendar surface
+
+   Event chips are tinted with their calendar's colour via the --event-color
+   custom property, set inline per chip. Deriving fill, border and text from one
+   variable keeps every colour legible in both themes without a lookup table.
+   =========================================================================== */
+
+.event-chip {
+  --event-fill: color-mix(in oklab, var(--event-color) 14%, var(--surface));
+  --event-line: color-mix(in oklab, var(--event-color) 34%, var(--surface));
+  --event-text: color-mix(in oklab, var(--event-color) 72%, var(--fg));
+  background-color: var(--event-fill);
+  border: 1px solid var(--event-line);
+  color: var(--event-text);
+}
+
+.dark .event-chip {
+  --event-fill: color-mix(in oklab, var(--event-color) 22%, var(--surface));
+  --event-line: color-mix(in oklab, var(--event-color) 40%, var(--surface));
+  --event-text: color-mix(in oklab, var(--event-color) 30%, var(--fg));
+}
+
+.event-chip[data-past='true'] {
+  opacity: 0.62;
+}
+
+.event-chip[data-cancelled='true'] {
+  text-decoration: line-through;
+  opacity: 0.5;
+}
+
+/* A declined or tentative event reads as provisional: hatched fill rather than
+   a solid one, so it is distinguishable without relying on colour alone. */
+.event-chip[data-tentative='true'] {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 4px,
+    color-mix(in oklab, var(--event-color) 22%, transparent) 4px,
+    color-mix(in oklab, var(--event-color) 22%, transparent) 8px
+  );
+}
+
+.event-chip[data-selected='true'] {
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--event-color);
+}
+
+.event-chip[data-dragging='true'] {
+  box-shadow: var(--shadow-lg);
+  opacity: 0.92;
+  z-index: 40;
+}

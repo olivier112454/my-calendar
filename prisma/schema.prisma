@@ -1,0 +1,887 @@
+// ---------------------------------------------------------------------------
+// Dayflow — data model
+//
+// Design rules that the rest of the codebase depends on:
+//
+//  1. The app database is the source of truth for app-specific data. External
+//     providers (Google, Microsoft, CalDAV, ...) are mirrored into the SAME
+//     normalized models; provider identity lives in `externalProvider` +
+//     `externalId` + `integrationAccountId`. Nothing above the provider layer
+//     ever sees a Google-shaped object.
+//  2. A user may connect MANY accounts of the SAME provider (personal + work
+//     Gmail). Nothing assumes one user = one Google account.
+//  3. Recurrence follows RFC 5545: the master row carries `recurrenceRule` and
+//     `recurrenceExDates`; a modified occurrence is a separate row pointing at
+//     the master through `recurringEventId` + `originalStartAt`. Occurrences
+//     are expanded on read, never materialised in bulk.
+//  4. Instants are stored as UTC timestamps; the wall-clock intent is preserved
+//     alongside them in `timezone` (IANA). All-day events additionally store a
+//     plain `startDate`/`endDate` so they never shift across zones.
+// ---------------------------------------------------------------------------
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ===========================================================================
+// Enums
+// ===========================================================================
+
+enum Provider {
+  LOCAL
+  GOOGLE
+  MICROSOFT
+  APPLE
+  CALDAV
+  ZOOM
+  SLACK
+  TODOIST
+  NOTION
+}
+
+enum IntegrationStatus {
+  ACTIVE
+  NEEDS_REAUTH
+  REVOKED
+  ERROR
+}
+
+enum CalendarKind {
+  PRIMARY
+  SECONDARY
+  BIRTHDAYS
+  HOLIDAYS
+  SUBSCRIBED
+  TASKS
+}
+
+enum CalendarVisibility {
+  PRIVATE
+  SHARED
+  PUBLIC
+}
+
+enum ShareRole {
+  VIEWER
+  EDITOR
+  OWNER
+}
+
+enum EventKind {
+  EVENT
+  FOCUS
+  OUT_OF_OFFICE
+  TASK_BLOCK
+  BIRTHDAY
+  HOLIDAY
+  REMINDER
+}
+
+enum EventStatus {
+  CONFIRMED
+  TENTATIVE
+  CANCELLED
+}
+
+enum EventVisibility {
+  DEFAULT
+  PUBLIC
+  PRIVATE
+}
+
+/// Whether the event consumes availability (free/busy).
+enum Transparency {
+  BUSY
+  FREE
+}
+
+enum AttendeeResponse {
+  NEEDS_ACTION
+  ACCEPTED
+  DECLINED
+  TENTATIVE
+}
+
+enum ReminderMethod {
+  APP
+  EMAIL
+  PUSH
+}
+
+enum MeetingProvider {
+  NONE
+  GOOGLE_MEET
+  MICROSOFT_TEAMS
+  ZOOM
+  CUSTOM
+  PHONE
+  IN_PERSON
+}
+
+enum WorkingLocation {
+  UNSPECIFIED
+  OFFICE
+  HOME
+  ELSEWHERE
+}
+
+enum TaskPriority {
+  P1
+  P2
+  P3
+  P4
+}
+
+enum TaskStatus {
+  INBOX
+  TODO
+  IN_PROGRESS
+  DONE
+}
+
+enum BookingStatus {
+  CONFIRMED
+  CANCELLED
+}
+
+enum NotificationType {
+  EVENT_REMINDER
+  INVITATION
+  RSVP_RESPONSE
+  TASK_DUE
+  SCHEDULING_REQUEST
+  CONFLICT
+  SYNC
+  SYSTEM
+}
+
+enum EmailCategory {
+  OTHER
+  MEETING
+  RESERVATION
+  TRAVEL
+  DEADLINE
+  INVITATION
+  TICKET
+}
+
+enum SyncStatus {
+  IDLE
+  SYNCING
+  OK
+  FAILED
+}
+
+enum ThemePreference {
+  LIGHT
+  DARK
+  SYSTEM
+}
+
+enum EventDensity {
+  COMFORTABLE
+  COMPACT
+}
+
+// ===========================================================================
+// Identity
+// ===========================================================================
+
+model User {
+  id        String  @id @default(uuid()) @db.Uuid
+  email     String  @unique
+  name      String?
+  avatarUrl String?
+  /// Public handle used in booking URLs: /book/<username>/<meeting-type>
+  username  String? @unique
+  timezone  String  @default("Europe/Amsterdam")
+  locale    String  @default("en")
+
+  onboardedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  settings     UserSettings?
+  sessions     Session[]
+  accounts     IntegrationAccount[]
+  workingHours WorkingHours[]
+
+  calendars      Calendar[]
+  events         Event[]
+  categories     Category[]
+  tasks          Task[]
+  taskProjects   TaskProject[]
+  taskTags       TaskTag[]
+  contacts       Contact[]
+  meetingTypes   MeetingType[]
+  bookings       Booking[]
+  notifications  Notification[]
+  pushSubs       PushSubscription[]
+  emailRefs      EmailReference[]
+  auditLogs      AuditLog[]
+  calendarShares CalendarShare[]
+
+  @@index([username])
+}
+
+/// Server-side session record. The cookie holds an opaque random token; only
+/// its SHA-256 hash is stored, so a database leak does not yield live sessions.
+model Session {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  tokenHash  String   @unique
+  userAgent  String?
+  ipHash     String?
+  expiresAt  DateTime
+  lastUsedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// Short-lived OAuth handshake record holding the PKCE verifier and CSRF state.
+model OAuthState {
+  id           String   @id @default(uuid()) @db.Uuid
+  state        String   @unique
+  codeVerifier String
+  nonce        String
+  /// Null for sign-in; set when an authenticated user connects another account.
+  userId       String?  @db.Uuid
+  redirectTo   String?
+  scopes       String[]
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
+/// One connected external account. A user can hold several per provider.
+model IntegrationAccount {
+  id                String            @id @default(uuid()) @db.Uuid
+  userId            String            @db.Uuid
+  provider          Provider
+  providerAccountId String
+  email             String?
+  displayName       String?
+  avatarUrl         String?
+  /// AES-256-GCM ciphertext. Never leaves the server.
+  accessTokenEnc    String?
+  refreshTokenEnc   String?
+  tokenExpiresAt    DateTime?
+  scopes            String[]
+  status            IntegrationStatus @default(ACTIVE)
+  lastError         String?
+  /// True for the account used to sign in.
+  isPrimary         Boolean           @default(false)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  calendars  Calendar[]
+  events     Event[]
+  contacts   Contact[]
+  emailRefs  EmailReference[]
+  syncStates SyncState[]
+
+  @@unique([userId, provider, providerAccountId])
+  @@index([userId, provider])
+}
+
+// ===========================================================================
+// Settings
+// ===========================================================================
+
+model UserSettings {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @unique @db.Uuid
+
+  // General
+  dateFormat        String  @default("dd MMM yyyy")
+  /// 12 or 24 hour clock.
+  timeFormat24h     Boolean @default(true)
+  /// 0 = Sunday ... 6 = Saturday.
+  weekStartsOn      Int     @default(1)
+  defaultCalendarId String? @db.Uuid
+  defaultDuration   Int     @default(30)
+  defaultEventColor String?
+
+  // Appearance
+  theme        ThemePreference @default(SYSTEM)
+  accentColor  String          @default("#4f46e5")
+  eventDensity EventDensity    @default(COMFORTABLE)
+  compactMode  Boolean         @default(false)
+  reduceMotion Boolean         @default(false)
+
+  // Calendar behaviour
+  showWeekends       Boolean  @default(true)
+  showWeekNumbers    Boolean  @default(false)
+  showDeclinedEvents Boolean  @default(false)
+  showBirthdays      Boolean  @default(true)
+  showHolidays       Boolean  @default(true)
+  showCompletedTasks Boolean  @default(false)
+  /// Extra IANA zones rendered next to the primary one in the time gutter.
+  secondaryTimezones String[]
+  dayStartHour       Int      @default(7)
+  dayEndHour         Int      @default(22)
+
+  // Scheduling
+  /// Minimum gap the conflict checker wants between two appointments.
+  bufferMinutes      Int     @default(15)
+  /// Travel-time estimator: straight-line distance x detour factor / speed.
+  travelDetourFactor Float   @default(1.3)
+  travelSpeedKmh     Int     @default(50)
+  autoDeclineOnFocus Boolean @default(false)
+  focusBlockMinutes  Int     @default(90)
+
+  // Notifications
+  browserNotifications Boolean @default(false)
+  emailNotifications   Boolean @default(true)
+  /// Reminders added to every new event. A list, because "the day before AND
+  /// ten minutes before" is the normal case, not an advanced one.
+  defaultReminders     Int[]   @default([10])
+  dailyAgendaEmail     Boolean @default(false)
+  dailyAgendaHour      Int     @default(7)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model WorkingHours {
+  id          String  @id @default(uuid()) @db.Uuid
+  userId      String  @db.Uuid
+  /// 0 = Sunday ... 6 = Saturday.
+  weekday     Int
+  /// Minutes from local midnight.
+  startMinute Int     @default(540)
+  endMinute   Int     @default(1020)
+  enabled     Boolean @default(true)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, weekday])
+}
+
+// ===========================================================================
+// Calendars & events
+// ===========================================================================
+
+model Calendar {
+  id          String             @id @default(uuid()) @db.Uuid
+  userId      String             @db.Uuid
+  name        String
+  description String?
+  color       String             @default("#4f46e5")
+  timezone    String?
+  kind        CalendarKind       @default(SECONDARY)
+  visibility  CalendarVisibility @default(PRIVATE)
+  isDefault   Boolean            @default(false)
+  /// Toggled by the checkbox in the sidebar; purely a display concern.
+  isVisible   Boolean            @default(true)
+  isReadOnly  Boolean            @default(false)
+  sortOrder   Int                @default(0)
+
+  // Provider mirror
+  externalProvider     Provider?
+  externalId           String?
+  integrationAccountId String?   @db.Uuid
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  integrationAccount IntegrationAccount? @relation(fields: [integrationAccountId], references: [id], onDelete: Cascade)
+  events             Event[]
+  shares             CalendarShare[]
+  meetingTypes       MeetingType[]
+
+  @@unique([integrationAccountId, externalId])
+  @@index([userId, isVisible])
+}
+
+model CalendarShare {
+  id         String    @id @default(uuid()) @db.Uuid
+  calendarId String    @db.Uuid
+  /// Set once the invitee has an account; e-mail is always kept.
+  userId     String?   @db.Uuid
+  email      String
+  role       ShareRole @default(VIEWER)
+  acceptedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  calendar Calendar @relation(fields: [calendarId], references: [id], onDelete: Cascade)
+  user     User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([calendarId, email])
+  @@index([userId])
+}
+
+model Category {
+  id       String  @id @default(uuid()) @db.Uuid
+  userId   String  @db.Uuid
+  name     String
+  color    String
+  /// Lucide icon name; the UI never renders emoji.
+  icon     String?
+  isSystem Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events Event[]
+
+  @@unique([userId, name])
+}
+
+model Event {
+  id         String @id @default(uuid()) @db.Uuid
+  userId     String @db.Uuid
+  calendarId String @db.Uuid
+
+  title        String
+  description  String?
+  location     String?
+  /// Geocoded location: { lat, lon, address, placeId }. Feeds travel-time
+  /// estimation and, later, map/autocomplete providers.
+  locationData Json?
+
+  kind         EventKind       @default(EVENT)
+  status       EventStatus     @default(CONFIRMED)
+  visibility   EventVisibility @default(DEFAULT)
+  transparency Transparency    @default(BUSY)
+
+  /// Instant in UTC.
+  startAt   DateTime
+  endAt     DateTime
+  /// IANA zone the wall-clock time was authored in.
+  timezone  String   @default("Europe/Amsterdam")
+  allDay    Boolean  @default(false)
+  /// Zone-free dates for all-day events (endDate is exclusive, per RFC 5545).
+  startDate String?
+  endDate   String?
+
+  meetingProvider   MeetingProvider @default(NONE)
+  meetingUrl        String?
+  /// Overrides the calendar colour when set.
+  color             String?
+  categoryId        String?         @db.Uuid
+  workingLocation   WorkingLocation @default(UNSPECIFIED)
+  /// Minutes of travel to reserve before the event.
+  travelTimeMinutes Int?
+
+  // --- recurrence -------------------------------------------------------
+  /// RFC 5545 RRULE on the master row, e.g. "FREQ=WEEKLY;BYDAY=MO,WE".
+  recurrenceRule    String?
+  /// ISO instants of occurrences removed from the series (EXDATE).
+  recurrenceExDates String[]
+  /// Set on an override row: the master it belongs to.
+  recurringEventId  String?   @db.Uuid
+  /// Set on an override row: which occurrence it replaces.
+  originalStartAt   DateTime?
+
+  // --- provider mirror ---------------------------------------------------
+  externalProvider     Provider?
+  externalId           String?
+  externalEtag         String?
+  integrationAccountId String?   @db.Uuid
+  /// Bumped on every local edit; used to order conflicting sync writes.
+  sequence             Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  calendar           Calendar            @relation(fields: [calendarId], references: [id], onDelete: Cascade)
+  category           Category?           @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  integrationAccount IntegrationAccount? @relation(fields: [integrationAccountId], references: [id], onDelete: SetNull)
+
+  recurringEvent Event?  @relation("EventSeries", fields: [recurringEventId], references: [id], onDelete: Cascade)
+  overrides      Event[] @relation("EventSeries")
+
+  attendees   EventAttendee[]
+  reminders   EventReminder[]
+  attachments EventAttachment[]
+  task        Task?             @relation("TaskTimeBlock")
+  booking     Booking?
+  emailRefs   EmailReference[]
+
+  @@unique([integrationAccountId, externalId])
+  @@index([userId, startAt])
+  @@index([userId, endAt])
+  @@index([calendarId, startAt])
+  @@index([recurringEventId])
+  @@index([userId, kind])
+}
+
+model EventAttendee {
+  id          String           @id @default(uuid()) @db.Uuid
+  eventId     String           @db.Uuid
+  email       String
+  name        String?
+  contactId   String?          @db.Uuid
+  isOrganizer Boolean          @default(false)
+  isOptional  Boolean          @default(false)
+  response    AttendeeResponse @default(NEEDS_ACTION)
+  comment     String?
+  invitedAt   DateTime?
+  createdAt   DateTime         @default(now())
+
+  event   Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  contact Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@unique([eventId, email])
+  @@index([contactId])
+}
+
+model EventReminder {
+  id            String         @id @default(uuid()) @db.Uuid
+  eventId       String         @db.Uuid
+  minutesBefore Int
+  method        ReminderMethod @default(APP)
+  /// Set by the reminder job so a reminder fires at most once.
+  sentAt        DateTime?
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, minutesBefore, method])
+}
+
+model EventAttachment {
+  id        String   @id @default(uuid()) @db.Uuid
+  eventId   String   @db.Uuid
+  name      String
+  url       String
+  mimeType  String?
+  sizeBytes Int?
+  createdAt DateTime @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+}
+
+// ===========================================================================
+// Tasks
+// ===========================================================================
+
+model TaskProject {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @db.Uuid
+  name       String
+  color      String    @default("#64748b")
+  sortOrder  Int       @default(0)
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tasks Task[]
+
+  @@unique([userId, name])
+}
+
+model TaskTag {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  name   String
+  color  String @default("#64748b")
+
+  user  User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tasks TaskTagOnTask[]
+
+  @@unique([userId, name])
+}
+
+model TaskTagOnTask {
+  taskId String @db.Uuid
+  tagId  String @db.Uuid
+
+  task Task    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  tag  TaskTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, tagId])
+}
+
+model Task {
+  id          String  @id @default(uuid()) @db.Uuid
+  userId      String  @db.Uuid
+  title       String
+  description String?
+  notes       String?
+
+  status   TaskStatus   @default(TODO)
+  priority TaskPriority @default(P3)
+
+  /// Deadline instant; null for someday tasks.
+  dueAt     DateTime?
+  /// True when the due date carries no meaningful time-of-day.
+  dueAllDay Boolean   @default(true)
+  timezone  String?
+
+  estimatedMinutes Int?
+  completedAt      DateTime?
+  sortOrder        Int       @default(0)
+
+  projectId    String? @db.Uuid
+  parentTaskId String? @db.Uuid
+
+  /// RRULE for repeating tasks.
+  recurrenceRule String?
+
+  /// The calendar block this task was scheduled into. One-to-one, so moving or
+  /// deleting the block keeps the task and its plan in step.
+  timeBlockId String? @unique @db.Uuid
+
+  reminderMinutesBefore Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project   TaskProject?    @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  parent    Task?           @relation("Subtasks", fields: [parentTaskId], references: [id], onDelete: Cascade)
+  subtasks  Task[]          @relation("Subtasks")
+  timeBlock Event?          @relation("TaskTimeBlock", fields: [timeBlockId], references: [id], onDelete: SetNull)
+  tags      TaskTagOnTask[]
+
+  @@index([userId, status])
+  @@index([userId, dueAt])
+  @@index([parentTaskId])
+}
+
+// ===========================================================================
+// Contacts
+// ===========================================================================
+
+model Contact {
+  id           String  @id @default(uuid()) @db.Uuid
+  userId       String  @db.Uuid
+  name         String
+  email        String?
+  phone        String?
+  organization String?
+  jobTitle     String?
+  avatarUrl    String?
+  notes        String?
+  isFavorite   Boolean @default(false)
+  birthday     String?
+
+  externalProvider     Provider?
+  externalId           String?
+  integrationAccountId String?   @db.Uuid
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  integrationAccount IntegrationAccount? @relation(fields: [integrationAccountId], references: [id], onDelete: SetNull)
+  attendeeLinks      EventAttendee[]
+
+  @@unique([integrationAccountId, externalId])
+  @@index([userId, name])
+  @@index([userId, email])
+}
+
+// ===========================================================================
+// Meeting scheduler (public booking pages)
+// ===========================================================================
+
+model MeetingType {
+  id          String  @id @default(uuid()) @db.Uuid
+  userId      String  @db.Uuid
+  slug        String
+  title       String
+  description String?
+  color       String  @default("#4f46e5")
+
+  durationMinutes      Int             @default(30)
+  bufferBeforeMinutes  Int             @default(0)
+  bufferAfterMinutes   Int             @default(10)
+  minimumNoticeMinutes Int             @default(240)
+  /// How far ahead invitees may book.
+  bookingWindowDays    Int             @default(60)
+  maxPerDay            Int?
+  meetingProvider      MeetingProvider @default(GOOGLE_MEET)
+  location             String?
+  targetCalendarId     String?         @db.Uuid
+  isActive             Boolean         @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user           User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  targetCalendar Calendar?                 @relation(fields: [targetCalendarId], references: [id], onDelete: SetNull)
+  availability   MeetingTypeAvailability[]
+  bookings       Booking[]
+
+  @@unique([userId, slug])
+}
+
+model MeetingTypeAvailability {
+  id            String @id @default(uuid()) @db.Uuid
+  meetingTypeId String @db.Uuid
+  weekday       Int
+  startMinute   Int
+  endMinute     Int
+
+  meetingType MeetingType @relation(fields: [meetingTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([meetingTypeId, weekday, startMinute])
+}
+
+model Booking {
+  id              String        @id @default(uuid()) @db.Uuid
+  meetingTypeId   String        @db.Uuid
+  userId          String        @db.Uuid
+  eventId         String?       @unique @db.Uuid
+  inviteeName     String
+  inviteeEmail    String
+  inviteeNotes    String?
+  inviteeTimezone String        @default("Europe/Amsterdam")
+  startAt         DateTime
+  endAt           DateTime
+  status          BookingStatus @default(CONFIRMED)
+  /// Random token that lets the invitee cancel without an account.
+  cancelToken     String        @unique
+  createdAt       DateTime      @default(now())
+
+  meetingType MeetingType @relation(fields: [meetingTypeId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event       Event?      @relation(fields: [eventId], references: [id], onDelete: SetNull)
+
+  @@index([userId, startAt])
+  @@index([meetingTypeId, startAt])
+}
+
+// ===========================================================================
+// Inbox, notifications, sync, audit
+// ===========================================================================
+
+model Notification {
+  id         String           @id @default(uuid()) @db.Uuid
+  userId     String           @db.Uuid
+  type       NotificationType
+  title      String
+  body       String?
+  link       String?
+  entityType String?
+  entityId   String?
+  readAt     DateTime?
+  createdAt  DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+}
+
+/// One browser or phone that has agreed to receive push notifications.
+///
+/// The endpoint is the push service's own URL for this device, and the two keys
+/// are what the payload is encrypted to — without them the push service can
+/// carry the message but never read it. A user has one row per device, so
+/// installing the app on a phone and a laptop yields two.
+model PushSubscription {
+  id       String  @id @default(uuid()) @db.Uuid
+  userId   String  @db.Uuid
+  /// Unique across users: a push service never reuses an endpoint.
+  endpoint String  @unique
+  /// The device's public key (P-256), base64url.
+  p256dh   String
+  /// The device's auth secret, base64url.
+  auth     String
+  /// Shown in settings so a device can be recognised before it is removed.
+  label    String?
+
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  /// When this device last failed to receive a push. Diagnostic only — it is
+  /// cleared on the next success and never stops a device being tried.
+  failedAt   DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// Privacy: message bodies are never persisted. Only provider identifiers,
+/// the metadata needed to render a list row, and the structured extraction
+/// result are kept, so the user can revoke access and leave nothing behind.
+model EmailReference {
+  id                   String   @id @default(uuid()) @db.Uuid
+  userId               String   @db.Uuid
+  integrationAccountId String   @db.Uuid
+  provider             Provider @default(GOOGLE)
+  messageId            String
+  threadId             String?
+
+  subject     String?
+  fromName    String?
+  fromEmail   String?
+  snippet     String?
+  receivedAt  DateTime
+  isUnread    Boolean  @default(false)
+  isImportant Boolean  @default(false)
+
+  category      EmailCategory @default(OTHER)
+  /// EventDraft produced by the extractor: title, start, end, location, ...
+  extraction    Json?
+  confidence    Float         @default(0)
+  /// Set when the user dismissed the suggestion, so it stops resurfacing.
+  dismissedAt   DateTime?
+  linkedEventId String?       @db.Uuid
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  integrationAccount IntegrationAccount @relation(fields: [integrationAccountId], references: [id], onDelete: Cascade)
+  linkedEvent        Event?             @relation(fields: [linkedEventId], references: [id], onDelete: SetNull)
+
+  @@unique([integrationAccountId, messageId])
+  @@index([userId, receivedAt])
+  @@index([userId, category])
+}
+
+model SyncState {
+  id                   String     @id @default(uuid()) @db.Uuid
+  integrationAccountId String     @db.Uuid
+  /// "calendar:<externalId>", "calendars", "messages", "contacts"
+  resource             String
+  /// Provider-issued incremental sync token / history id.
+  syncToken            String?
+  status               SyncStatus @default(IDLE)
+  lastSyncedAt         DateTime?
+  lastError            String?
+  itemsSynced          Int        @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  integrationAccount IntegrationAccount @relation(fields: [integrationAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([integrationAccountId, resource])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  action     String
+  entityType String?
+  entityId   String?
+  metadata   Json?
+  ipHash     String?
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
