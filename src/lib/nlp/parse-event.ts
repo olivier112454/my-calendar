@@ -1,43 +1,40 @@
-import { addDaysToKey, dayKeyOf, wallToUtc } from '../datetime'
+import { addDaysToKey, dayKeyOf, monthKeyBounds, wallToUtc, weekdayOf } from '../datetime'
+import {
+  DAYPART_PATTERN,
+  DURATION_UNIT_PATTERN,
+  DUTCH_CLOCK_PATTERN,
+  MONTHS,
+  MONTH_PATTERN,
+  NAMED_DURATION_PATTERN,
+  QUALIFIER_PATTERN,
+  WEEKDAYS,
+  WEEKDAY_PATTERN,
+  type Daypart,
+  daypartOf,
+  durationUnitToMinutes,
+  dutchClockToMinutes,
+  isNextQualifier,
+  namedDurationToMinutes,
+  resolveTwelveHour,
+} from './vocabulary'
 import type { EventDraft } from '@/types/domain'
 
 /**
  * Natural-language event parser.
  *
- * "Lunch with Mark tomorrow at 13" becomes a draft the user confirms — never a
- * saved event. Everything it recognises is reported back in `matched`, so the
- * preview can say what it understood rather than silently guessing.
+ * "Lunch with Mark tomorrow at 13" — or "Lunch met Mark morgen om half twee" —
+ * becomes a draft the user confirms, never a saved event. Everything it
+ * recognises is reported back in `matched`, so the preview can say what it
+ * understood rather than silently guessing.
+ *
+ * English and Dutch are read the same way, without a language setting: the
+ * words live in `./vocabulary` and both are tried against every line.
  *
  * This is deliberately a plain, deterministic parser: it runs instantly, works
  * offline, and costs nothing. `AssistantService` can later hand the same text to
  * a model and return the same `EventDraft` shape when a sentence defeats it —
  * the callers do not change.
  */
-
-const WEEKDAYS: Record<string, number> = {
-  sunday: 0, sun: 0,
-  monday: 1, mon: 1,
-  tuesday: 2, tue: 2, tues: 2,
-  wednesday: 3, wed: 3,
-  thursday: 4, thu: 4, thur: 4, thurs: 4,
-  friday: 5, fri: 5,
-  saturday: 6, sat: 6,
-}
-
-const MONTHS: Record<string, number> = {
-  jan: 0, january: 0,
-  feb: 1, february: 1,
-  mar: 2, march: 2,
-  apr: 3, april: 3,
-  may: 4,
-  jun: 5, june: 5,
-  jul: 6, july: 6,
-  aug: 7, august: 7,
-  sep: 8, sept: 8, september: 8,
-  oct: 9, october: 9,
-  nov: 10, november: 10,
-  dec: 11, december: 11,
-}
 
 const DEFAULT_DURATION_MINUTES = 60
 
@@ -61,10 +58,16 @@ export function parseEventText(input: string, options: ParseOptions): EventDraft
   const matched: string[] = []
   let confidence = 0
 
-  const consume = (pattern: RegExp, handler: (match: RegExpMatchArray) => void) => {
+  // A handler returning false rejects the match: the pattern found something
+  // shaped right that turned out not to be, so the text stays for a later rule
+  // instead of being eaten and taken out of the title.
+  const consume = (
+    pattern: RegExp,
+    handler: (match: RegExpMatchArray) => void | boolean,
+  ) => {
     const match = rest.match(pattern)
     if (!match) return false
-    handler(match)
+    if (handler(match) === false) return false
     rest = rest.replace(match[0], ' ')
     return true
   }
@@ -72,15 +75,21 @@ export function parseEventText(input: string, options: ParseOptions): EventDraft
   /* ------------------------------------------------------------ recurrence */
 
   let recurrenceRule: string | null = null
+
+  // "every Monday" / "elke maandag" / "iedere week"
   consume(
-    /\bevery\s+(day|weekday|week|month|year|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)\b/i,
+    new RegExp(
+      `\\b(?:every|elke|iedere)\\s+(day|weekday|week|month|year|dag|werkdag|weekdag|week|maand|jaar|${WEEKDAY_PATTERN})\\b`,
+      'i',
+    ),
     (match) => {
       const unit = match[1]!.toLowerCase()
-      if (unit === 'day') recurrenceRule = 'FREQ=DAILY'
-      else if (unit === 'weekday') recurrenceRule = 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR'
-      else if (unit === 'week') recurrenceRule = 'FREQ=WEEKLY'
-      else if (unit === 'month') recurrenceRule = 'FREQ=MONTHLY'
-      else if (unit === 'year') recurrenceRule = 'FREQ=YEARLY'
+      if (unit === 'day' || unit === 'dag') recurrenceRule = 'FREQ=DAILY'
+      else if (unit === 'weekday' || unit === 'werkdag' || unit === 'weekdag') {
+        recurrenceRule = 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR'
+      } else if (unit === 'week') recurrenceRule = 'FREQ=WEEKLY'
+      else if (unit === 'month' || unit === 'maand') recurrenceRule = 'FREQ=MONTHLY'
+      else if (unit === 'year' || unit === 'jaar') recurrenceRule = 'FREQ=YEARLY'
       else {
         const weekday = WEEKDAYS[unit]!
         recurrenceRule = `FREQ=WEEKLY;BYDAY=${['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'][weekday]}`
@@ -90,10 +99,30 @@ export function parseEventText(input: string, options: ParseOptions): EventDraft
     },
   )
 
+  // The single-word Dutch forms, which carry no "elke".
+  if (!recurrenceRule) {
+    consume(/\b(dagelijks|wekelijks|maandelijks|jaarlijks)\b/i, (match) => {
+      const word = match[1]!.toLowerCase()
+      recurrenceRule =
+        word === 'dagelijks'
+          ? 'FREQ=DAILY'
+          : word === 'wekelijks'
+            ? 'FREQ=WEEKLY'
+            : word === 'maandelijks'
+              ? 'FREQ=MONTHLY'
+              : 'FREQ=YEARLY'
+      matched.push(`repeats ${word}`)
+      confidence += 0.15
+    })
+  }
+
   /* ------------------------------------------------------------------ date */
 
   let dayKey = today
   let dateFound = false
+  // Set by the Dutch words that name a part of the day; applied to any 12-hour
+  // reading further down.
+  let daypart: Daypart | null = null
 
   const setDay = (key: string, label: string) => {
     dayKey = key
@@ -102,11 +131,11 @@ export function parseEventText(input: string, options: ParseOptions): EventDraft
     confidence += 0.3
   }
 
-  // "3 September", "September 3", "3 sep"
+  // "3 September", "September 3", "3 sep", "3 maart"
   if (
     !dateFound &&
     consume(
-      /\b(\d{1,2})(?:st|nd|rd|th)?\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sept?|september|oct|october|nov|november|dec|december)\b/i,
+      new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th|e)?\\s+(${MONTH_PATTERN})\\b`, 'i'),
       (match) => {
         setDay(
           resolveMonthDay(Number(match[1]), MONTHS[match[2]!.toLowerCase()]!, now, timezone),
@@ -119,7 +148,7 @@ export function parseEventText(input: string, options: ParseOptions): EventDraft
   } else if (
     !dateFound &&
     consume(
-      /\b(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sept?|september|oct|october|nov|november|dec|december)\s+(\d{1,2})(?:st|nd|rd|th)?\b/i,
+      new RegExp(`\\b(${MONTH_PATTERN})\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b`, 'i'),
       (match) => {
         setDay(
           resolveMonthDay(Number(match[2]), MONTHS[match[1]!.toLowerCase()]!, now, timezone),
@@ -142,48 +171,83 @@ export function parseEventText(input: string, options: ParseOptions): EventDraft
   }
 
   if (!dateFound) {
-    consume(/\bday\s+after\s+tomorrow\b/i, () =>
+    consume(/\b(?:day\s+after\s+tomorrow|overmorgen)\b/i, () =>
       setDay(addDaysToKey(today, 2), 'day after tomorrow'),
     )
   }
+  // The Dutch compounds name a day and a part of it in one word, and have to be
+  // tried before the bare "morgen" they contain.
   if (!dateFound) {
-    consume(/\btomorrow\b/i, () => setDay(addDaysToKey(today, 1), 'tomorrow'))
+    consume(/\bmorgen(ochtend|middag|avond)\b/i, (match) => {
+      daypart = daypartOf(match[1]!)
+      setDay(addDaysToKey(today, 1), `tomorrow ${match[1]!.toLowerCase()}`)
+    })
   }
   if (!dateFound) {
-    consume(/\btoday\b/i, () => setDay(today, 'today'))
+    consume(/\b(vanochtend|vanmorgen|vanmiddag|vanavond|vannacht)\b/i, (match) => {
+      daypart = daypartOf(match[1]!)
+      setDay(today, match[1]!.toLowerCase())
+    })
   }
   if (!dateFound) {
-    consume(/\btonight\b/i, () => setDay(today, 'tonight'))
+    consume(/\b(?:tomorrow|morgen)\b/i, () => setDay(addDaysToKey(today, 1), 'tomorrow'))
+  }
+  if (!dateFound) {
+    consume(/\b(?:today|vandaag)\b/i, () => setDay(today, 'today'))
+  }
+  if (!dateFound) {
+    consume(/\btonight\b/i, () => {
+      daypart = 'pm'
+      setDay(today, 'tonight')
+    })
+  }
+  // "eind van de maand" — the last day, which is what a deadline means by it.
+  if (!dateFound) {
+    consume(/\b(?:aan\s+het\s+)?eind(?:e)?\s+van\s+de\s+maand\b/i, () =>
+      setDay(monthKeyBounds(today).last, 'end of the month'),
+    )
   }
 
-  // "next Tuesday" / "Tuesday" / "this Friday"
+  // "next Tuesday" / "Tuesday" / "this Friday" / "volgende dinsdag" / "vrijdag"
+  const NEXT_WEEK = /\b(?:next\s+week|volgende\s+week)\b/i
   if (!dateFound) {
-    const nextWeek = /\bnext\s+week\b/i.test(rest)
+    const nextWeek = NEXT_WEEK.test(rest)
     consume(
-      /\b(?:(next|this|coming)\s+)?(sunday|sun|monday|mon|tuesday|tues|tue|wednesday|wed|thursday|thurs|thur|thu|friday|fri|saturday|sat)\b/i,
+      new RegExp(`\\b(?:(${QUALIFIER_PATTERN})\\s+)?(${WEEKDAY_PATTERN})\\b`, 'i'),
       (match) => {
         const qualifier = match[1]?.toLowerCase()
         const target = WEEKDAYS[match[2]!.toLowerCase()]!
-        const todayName = today
-        const currentDay = new Date(`${todayName}T12:00:00`).getDay()
 
-        let delta = (target - currentDay + 7) % 7
+        let delta = (target - weekdayOf(today) + 7) % 7
         // A bare weekday name always means the next one, never today.
         if (delta === 0) delta = 7
-        if (qualifier === 'next' || nextWeek) delta += 7
+        if (isNextQualifier(qualifier) || nextWeek) delta += 7
 
         setDay(
-          addDaysToKey(todayName, delta),
+          addDaysToKey(today, delta),
           `${qualifier ? `${qualifier} ` : ''}${match[2]}`,
         )
       },
     )
-    rest = rest.replace(/\bnext\s+week\b/i, ' ')
+    // Only once a weekday has actually used it. Stripping it unconditionally
+    // discarded "volgende week" on a line that named no day, leaving the event
+    // on today with the words gone from the title.
+    if (dateFound) rest = rest.replace(NEXT_WEEK, ' ')
+  }
+
+  // A bare "next week" / "volgende week" with no weekday after it.
+  if (!dateFound) {
+    consume(NEXT_WEEK, () => setDay(addDaysToKey(today, 7), 'next week'))
   }
 
   if (!dateFound) {
-    consume(/\bin\s+(\d{1,2})\s+days?\b/i, (match) =>
+    consume(/\b(?:in|over)\s+(\d{1,2})\s+(?:days?|dagen|dag)\b/i, (match) =>
       setDay(addDaysToKey(today, Number(match[1])), `in ${match[1]} days`),
+    )
+  }
+  if (!dateFound) {
+    consume(/\b(?:in|over)\s+(\d{1,2})\s+(?:weeks?|weken|week)\b/i, (match) =>
+      setDay(addDaysToKey(today, Number(match[1]) * 7), `in ${match[1]} weeks`),
     )
   }
 
@@ -192,6 +256,14 @@ export function parseEventText(input: string, options: ParseOptions): EventDraft
   let startMinutes: number | null = null
   let endMinutes: number | null = null
   let allDay = false
+
+  // A part of the day stated on its own ("'s middags", "'s avonds"). Read before
+  // any clock so a 12-hour phrase further on knows which half it belongs to.
+  consume(new RegExp(`(?<![\\w'])(?:${DAYPART_PATTERN})\\b`, 'i'), (match) => {
+    daypart = daypartOf(match[0])
+    matched.push(match[0].trim().toLowerCase())
+    confidence += 0.05
+  })
 
   const toMinutes = (hour: number, minute: number, meridiem?: string) => {
     let h = hour
@@ -203,9 +275,9 @@ export function parseEventText(input: string, options: ParseOptions): EventDraft
     return h * 60 + minute
   }
 
-  // "from 10:00 to 12:30", "10:00-12:30", "10-12"
+  // "from 10:00 to 12:30", "10:00-12:30", "10-12", "van 10 tot 12"
   consume(
-    /\b(?:from\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:-|–|to|until|till)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i,
+    /\b(?:from\s+|van\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:-|–|to|until|till|tot(?:\s+en\s+met)?)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i,
     (match) => {
       const startMeridiem = match[3] ?? match[6]
       startMinutes = toMinutes(Number(match[1]), Number(match[2] ?? 0), startMeridiem)
@@ -216,6 +288,40 @@ export function parseEventText(input: string, options: ParseOptions): EventDraft
       confidence += 0.35
     },
   )
+
+  // "half vier", "kwart over negen", "tien voor half acht". These name the hour
+  // they lead up to, so they are resolved by the vocabulary rather than here.
+  if (startMinutes === null) {
+    consume(new RegExp(DUTCH_CLOCK_PATTERN, 'i'), (match) => {
+      const dialMinutes = dutchClockToMinutes(match)
+      if (dialMinutes === null) return false
+      const hour = resolveTwelveHour(Math.floor(dialMinutes / 60), daypart)
+      startMinutes = hour * 60 + (((dialMinutes % 60) + 60) % 60)
+      matched.push(formatClock(startMinutes))
+      confidence += 0.3
+    })
+  }
+
+  // "om 15:00", "om 15 uur", "vanaf 9"
+  if (startMinutes === null) {
+    consume(/\b(?:om|vanaf)\s+(\d{1,2})(?:[:.](\d{2}))?\s*(?:uur|u)?\b/i, (match) => {
+      const hour = Number(match[1])
+      // A bare hour under 13 is a 12-hour reading; 15 already says which half.
+      startMinutes =
+        (hour < 13 ? resolveTwelveHour(hour, daypart) : hour) * 60 + Number(match[2] ?? 0)
+      matched.push(formatClock(startMinutes))
+      confidence += 0.3
+    })
+  }
+
+  // "15u30", "9u"
+  if (startMinutes === null) {
+    consume(/\b(\d{1,2})u(\d{2})?\b/i, (match) => {
+      startMinutes = Number(match[1]) * 60 + Number(match[2] ?? 0)
+      matched.push(formatClock(startMinutes))
+      confidence += 0.3
+    })
+  }
 
   if (startMinutes === null) {
     consume(/\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i, (match) => {
@@ -241,16 +347,50 @@ export function parseEventText(input: string, options: ParseOptions): EventDraft
     })
   }
 
-  // "for 90 minutes" / "for 1.5 hours"
+  // A bare "14 uur". Only above seven, where the hour cannot also be read as a
+  // length: "vergadering 2 uur" is a two-hour meeting, "vergadering 14 uur" is
+  // a time. Anything lower falls through to the duration patterns below.
+  if (startMinutes === null) {
+    consume(/\b(\d{1,2})(?:[:.](\d{2}))?\s*uur\b/i, (match) => {
+      const hour = Number(match[1])
+      if (hour < 7 || hour > 23) return false
+      startMinutes = hour * 60 + Number(match[2] ?? 0)
+      matched.push(formatClock(startMinutes))
+      confidence += 0.3
+    })
+  }
+
+  /* -------------------------------------------------------------- duration */
+
   let durationMinutes: number | null = null
-  consume(/\bfor\s+(\d+(?:[.,]\d+)?)\s*(m|min|mins|minutes?|h|hr|hrs|hours?)\b/i, (match) => {
-    const value = Number(match[1]!.replace(',', '.'))
-    durationMinutes = /^h/i.test(match[2]!) ? Math.round(value * 60) : Math.round(value)
-    matched.push(`${durationMinutes} min`)
+
+  // "anderhalf uur", "een kwartier", "drie kwartier" — Dutch says these as a
+  // phrase, and a quarter of an hour is a unit of its own with no English twin.
+  consume(new RegExp(`\\b(?:${NAMED_DURATION_PATTERN})\\b`, 'i'), (match) => {
+    const minutes = namedDurationToMinutes(match[0])
+    if (minutes === null) return false
+    durationMinutes = minutes
+    matched.push(`${minutes} min`)
     confidence += 0.1
   })
 
-  consume(/\ball[- ]day\b/i, () => {
+  // "for 90 minutes" / "for 1.5 hours" / "voor 30 minuten" / a bare "1,5 uur"
+  if (durationMinutes === null) {
+    consume(
+      new RegExp(
+        `\\b(?:for|voor|gedurende)?\\s*(\\d+(?:[.,]\\d+)?)\\s*(${DURATION_UNIT_PATTERN})\\b`,
+        'i',
+      ),
+      (match) => {
+        const value = Number(match[1]!.replace(',', '.'))
+        durationMinutes = durationUnitToMinutes(value, match[2]!)
+        matched.push(`${durationMinutes} min`)
+        confidence += 0.1
+      },
+    )
+  }
+
+  consume(/\b(?:all[- ]day|hele\s+dag)\b/i, () => {
     allDay = true
     matched.push('all day')
     confidence += 0.2
@@ -260,7 +400,9 @@ export function parseEventText(input: string, options: ParseOptions): EventDraft
 
   let location: string | null = null
   consume(
-    /\s(?:at|in)\s+((?:the\s+)?[A-Za-zÀ-ÿ0-9][\wÀ-ÿ'&.-]*(?:\s+[A-Za-zÀ-ÿ0-9][\wÀ-ÿ'&.-]*){0,4})\s*$/,
+    // "bij" is included; "op" deliberately is not. "op" ends far too many
+    // ordinary Dutch phrases ("op tijd", "bel Jan op") to be read as a place.
+    /\s(?:at|in|bij)\s+((?:the\s+|de\s+|het\s+)?[A-Za-zÀ-ÿ0-9][\wÀ-ÿ'&.-]*(?:\s+[A-Za-zÀ-ÿ0-9][\wÀ-ÿ'&.-]*){0,4})\s*$/,
     (match) => {
       location = match[1]!.trim()
       matched.push(`at ${location}`)
@@ -283,9 +425,9 @@ export function parseEventText(input: string, options: ParseOptions): EventDraft
   }
 
   consume(
-    /\bwith\s+([A-ZÀ-Þ][\wÀ-ÿ'-]*(?:\s+(?:and\s+)?[A-ZÀ-Þ][\wÀ-ÿ'-]*)*)\b/,
+    /\b(?:with|met|samen\s+met)\s+([A-ZÀ-Þ][\wÀ-ÿ'-]*(?:\s+(?:and\s+|en\s+)?[A-ZÀ-Þ][\wÀ-ÿ'-]*)*)\b/,
     (match) => {
-      for (const name of match[1]!.split(/\s+and\s+|,\s*/)) {
+      for (const name of match[1]!.split(/\s+and\s+|\s+en\s+|,\s*/)) {
         const trimmed = name.trim()
         if (trimmed) participants.push({ name: trimmed })
       }
@@ -300,7 +442,10 @@ export function parseEventText(input: string, options: ParseOptions): EventDraft
     rest
       .replace(/\s+/g, ' ')
       .trim()
-      .replace(/^(?:on|at|the|a|an)\s+/i, '')
+      .replace(/^(?:on|at|the|a|an|om|op|de|het|een)\s+/i, '')
+      // Prepositions the clock or date took their object from, left dangling:
+      // "Lunch met Mark morgen om" once the time behind "om" was consumed.
+      .replace(/\s+(?:on|at|from|om|van|vanaf|tot|voor)$/i, '')
       .replace(/[\s,;:-]+$/, '') || 'New event'
 
   if (title !== 'New event') confidence += 0.2

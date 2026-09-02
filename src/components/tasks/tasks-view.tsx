@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
-import { CheckSquare, Filter, Plus } from 'lucide-react'
+import { CheckSquare, Filter, Plus, Wand2 } from 'lucide-react'
 import { api, qs } from '@/lib/client/api'
 import {
   addDaysToKey,
@@ -122,6 +122,23 @@ export function TasksView({
     }
   }
 
+  /*
+   * What the line will become, worked out while it is being typed.
+   *
+   * The result used to appear in a toast after the task was already created,
+   * which is the one moment the reading is no longer useful: by then a misread
+   * date is a task on the wrong day rather than something to correct. Showing
+   * it under the field costs nothing — the parser is a handful of regular
+   * expressions — and makes the interpretation refutable before it is
+   * committed.
+   */
+  const preview = React.useMemo(() => {
+    const text = draft.trim()
+    if (text.length < 3) return null
+    const parsed = parseTaskLine(text, timezone)
+    return parsed.matched.length > 0 ? parsed : null
+  }, [draft, timezone])
+
   const quickAdd = async () => {
     const text = draft.trim()
     if (!text) return
@@ -234,7 +251,8 @@ export function TasksView({
       </header>
 
       <div className="shrink-0 border-b border-border bg-surface px-4 py-2">
-        <div className="mx-auto flex max-w-3xl items-center gap-2">
+        <div className="mx-auto flex max-w-3xl flex-col gap-1.5">
+        <div className="flex items-center gap-2">
           <Input
             ref={quickAddRef}
             value={draft}
@@ -253,6 +271,28 @@ export function TasksView({
             <Plus />
             Add
           </Button>
+        </div>
+
+        {preview ? (
+          // Announced politely: someone who cannot see the strip should still
+          // learn how their line was read, but not have every keystroke
+          // interrupt them.
+          <p
+            aria-live="polite"
+            className="flex flex-wrap items-center gap-1.5 px-0.5 text-xs text-fg-muted"
+          >
+            <Wand2 className="size-3.5 shrink-0 text-fg-subtle" aria-hidden="true" />
+            <span className="font-medium text-fg">{preview.title}</span>
+            {preview.matched.map((token) => (
+              <span
+                key={token}
+                className="rounded border border-border bg-surface-2 px-1.5 py-px text-[11px] text-fg-muted"
+              >
+                {token}
+              </span>
+            ))}
+          </p>
+        ) : null}
         </div>
       </div>
 
