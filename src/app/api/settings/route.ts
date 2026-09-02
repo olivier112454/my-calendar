@@ -7,6 +7,8 @@ import {
   updateSettings,
   updateWorkingHours,
 } from '@/server/services/settings'
+import { syncDutchHolidays } from '@/server/services/holidays'
+import { todayKey } from '@/lib/datetime'
 
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Use a colour like #4f46e5')
 
@@ -31,6 +33,8 @@ const patchSchema = z.object({
       showDeclinedEvents: z.boolean().optional(),
       showBirthdays: z.boolean().optional(),
       showHolidays: z.boolean().optional(),
+      /** Null turns school holidays off and removes the ones already placed. */
+      schoolHolidayRegion: z.enum(['NOORD', 'MIDDEN', 'ZUID']).nullish(),
       showCompletedTasks: z.boolean().optional(),
       secondaryTimezones: z.array(z.string()).max(4).optional(),
       dayStartHour: z.number().int().min(0).max(23).optional(),
@@ -93,6 +97,21 @@ export const PATCH = route(async (request: NextRequest) => {
   const input = await parseBody(request, patchSchema)
 
   if (input.settings) await updateSettings(user.id, input.settings)
+
+  // Changing the region has to move events, not just a flag, so the sync runs
+  // here rather than lazily on the next calendar read: the user who just chose
+  // "Zuid" is looking at the calendar a second later.
+  if (input.settings && 'schoolHolidayRegion' in input.settings) {
+    const thisYear = Number(todayKey(user.timezone).slice(0, 4))
+    await syncDutchHolidays(user.id, {
+      region: input.settings.schoolHolidayRegion ?? null,
+      // This year and the next two: far enough to plan a summer around,
+      // near enough that the published table still covers it.
+      fromYear: thisYear,
+      toYear: thisYear + 2,
+      timezone: user.timezone,
+    })
+  }
   if (input.profile) await updateProfile(user.id, input.profile)
   if (input.workingHours) await updateWorkingHours(user.id, input.workingHours)
 

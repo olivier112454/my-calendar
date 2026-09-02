@@ -2,11 +2,18 @@
 
 import * as React from 'react'
 import { Monitor, Moon, Sun } from 'lucide-react'
-import type { UserSettings } from '@prisma/client'
+import type { SchoolRegion, UserSettings } from '@prisma/client'
 import { cn } from '@/lib/utils'
 import { accentColors } from '@/config/app'
 import { useAppearance, type ThemePreference } from '@/components/theme-provider'
-import { Switch } from '@/components/ui/controls'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Switch,
+} from '@/components/ui/controls'
 import { SettingsRow, SettingsSection } from './settings-nav'
 import { useSettingsSave } from './use-settings-save'
 
@@ -196,6 +203,30 @@ export function AppearanceSettings({ settings }: { settings: UserSettings }) {
             checked={local.showHolidays}
             onCheckedChange={(showHolidays) => patch({ showHolidays })}
           />
+        </SettingsRow>
+        <SettingsRow
+          label="Dutch school holidays"
+          htmlFor="school-region"
+          description="The ministry staggers these across three regions. Off unless you pick one."
+        >
+          <Select
+            value={local.schoolHolidayRegion ?? 'NONE'}
+            onValueChange={(value) =>
+              patch({
+                schoolHolidayRegion: value === 'NONE' ? null : (value as SchoolRegion),
+              })
+            }
+          >
+            <SelectTrigger id="school-region" className="w-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="NONE">Do not show</SelectItem>
+              <SelectItem value="NOORD">Regio Noord</SelectItem>
+              <SelectItem value="MIDDEN">Regio Midden</SelectItem>
+              <SelectItem value="ZUID">Regio Zuid</SelectItem>
+            </SelectContent>
+          </Select>
         </SettingsRow>
       </SettingsSection>
     </>

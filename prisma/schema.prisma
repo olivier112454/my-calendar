@@ -51,6 +51,13 @@ enum IntegrationStatus {
   ERROR
 }
 
+/// The three regions the Dutch ministry staggers school holidays across.
+enum SchoolRegion {
+  NOORD
+  MIDDEN
+  ZUID
+}
+
 enum CalendarKind {
   PRIMARY
   SECONDARY
@@ -326,6 +333,10 @@ model UserSettings {
   showDeclinedEvents Boolean  @default(false)
   showBirthdays      Boolean  @default(true)
   showHolidays       Boolean  @default(true)
+  /// Which region's school holidays to show, or null for none. Off by default:
+  /// it is only useful to a household with school-age children, and a calendar
+  /// full of other people's holidays is noise.
+  schoolHolidayRegion SchoolRegion?
   showCompletedTasks Boolean  @default(false)
   /// Extra IANA zones rendered next to the primary one in the time gutter.
   secondaryTimezones String[]
