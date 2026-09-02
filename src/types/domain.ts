@@ -184,6 +184,8 @@ export interface TaskSummary {
   dueAt: string | null
   dueAllDay: boolean
   estimatedMinutes: number | null
+  /** Recorded after the fact; the gap against the estimate is what is learned. */
+  actualMinutes: number | null
   completedAt: string | null
   sortOrder: number
   projectId: string | null

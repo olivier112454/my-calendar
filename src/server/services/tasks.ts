@@ -138,6 +138,7 @@ function toSummary(row: TaskRow, completedSubtaskCount: number): TaskSummary {
     dueAt: row.dueAt?.toISOString() ?? null,
     dueAllDay: row.dueAllDay,
     estimatedMinutes: row.estimatedMinutes,
+    actualMinutes: row.actualMinutes,
     completedAt: row.completedAt?.toISOString() ?? null,
     sortOrder: row.sortOrder,
     projectId: row.projectId,
@@ -246,6 +247,7 @@ export async function updateTask(
   if (input.dueAt !== undefined) data.dueAt = input.dueAt ? new Date(input.dueAt) : null
   if (input.dueAllDay !== undefined) data.dueAllDay = input.dueAllDay
   if (input.estimatedMinutes !== undefined) data.estimatedMinutes = input.estimatedMinutes
+  if (input.actualMinutes !== undefined) data.actualMinutes = input.actualMinutes
   if (input.recurrenceRule !== undefined) data.recurrenceRule = input.recurrenceRule
   if (input.reminderMinutesBefore !== undefined) {
     data.reminderMinutesBefore = input.reminderMinutesBefore
@@ -332,6 +334,7 @@ async function rollForward(userId: string, task: TaskRow): Promise<void> {
       dueAllDay: task.dueAllDay,
       timezone: task.timezone,
       estimatedMinutes: task.estimatedMinutes,
+      actualMinutes: task.actualMinutes,
       projectId: task.projectId,
       recurrenceRule: task.recurrenceRule,
       reminderMinutesBefore: task.reminderMinutesBefore,

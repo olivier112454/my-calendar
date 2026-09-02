@@ -26,6 +26,7 @@ import {
 import { EmptyState, ErrorBanner, ListSkeleton } from '@/components/ui/states'
 import { TaskRow } from './task-row'
 import { TaskEditor } from './task-editor'
+import { ActualTimePrompt } from './actual-time-prompt'
 import { parseTaskLine } from '@/lib/nlp/parse-task'
 import { NotificationBell } from '@/components/layout/notification-bell'
 
@@ -66,6 +67,10 @@ export function TasksView({
     searchParams.get('task'),
   )
   const quickAddRef = React.useRef<HTMLInputElement>(null)
+  // A task just finished that carried an estimate, waiting to be told how long
+  // it really took. One at a time: a queue of these would be a chore, and the
+  // most recent is the one still fresh in mind.
+  const [awaitingActual, setAwaitingActual] = React.useState<TaskSummary | null>(null)
 
   // ?new=1 arrives from the command palette; focus the quick-add rather than
   // opening a dialog for something this small.
@@ -111,6 +116,9 @@ export function TasksView({
     )
     try {
       await api.patch(`/api/tasks/${task.id}`, { status: done ? 'DONE' : 'TODO' })
+      // Only worth asking where there is an estimate to compare against.
+      if (done && task.estimatedMinutes) setAwaitingActual(task)
+      if (!done && awaitingActual?.id === task.id) setAwaitingActual(null)
       if (done && !showCompleted) {
         // Let the strike-through register before the row leaves the list.
         setTimeout(() => setTasks((current) => current.filter((e) => e.id !== task.id)), 450)
@@ -295,6 +303,19 @@ export function TasksView({
         ) : null}
         </div>
       </div>
+
+      {awaitingActual ? (
+        <div className="shrink-0 border-b border-border bg-surface px-4 py-2">
+          <div className="mx-auto max-w-3xl">
+            <ActualTimePrompt
+              // Remount per task, so a half-typed number never carries over.
+              key={awaitingActual.id}
+              task={awaitingActual}
+              onDone={() => setAwaitingActual(null)}
+            />
+          </div>
+        </div>
+      ) : null}
 
       <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-3xl px-4 py-3">

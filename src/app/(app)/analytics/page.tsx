@@ -5,6 +5,7 @@ import {
   resolveRange,
   type RangePreset,
 } from '@/server/services/analytics'
+import { getCalibration } from '@/server/services/calibration'
 import { AnalyticsView } from '@/components/analytics/analytics-view'
 
 export const metadata: Metadata = { title: 'Analytics' }
@@ -26,12 +27,17 @@ export default async function AnalyticsPage({
 
   const range = resolveRange(preset, user.timezone, settings.weekStartsOn)
   const analytics = await computeAnalytics(user.id, user.email, user.timezone, range)
+  // Not scoped to the selected range: this is a standing fact about how the
+  // user estimates, and a single week rarely holds enough finished work to say
+  // anything about it.
+  const calibration = await getCalibration(user.id)
 
   return (
     <AnalyticsView
       analytics={analytics}
       preset={preset}
       weekStartsOn={settings.weekStartsOn}
+      calibration={calibration}
     />
   )
 }

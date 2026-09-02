@@ -2,13 +2,14 @@
 
 import * as React from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { BarChart3, Table2 } from 'lucide-react'
+import { BarChart3, Table2, Timer } from 'lucide-react'
 import { formatDayLabel, formatDuration } from '@/lib/datetime'
 import { initials } from '@/lib/utils'
 import type { AnalyticsResult, RangePreset } from '@/server/services/analytics'
 import { Button } from '@/components/ui/button'
 import { SegmentedControl } from '@/components/ui/controls'
 import { EmptyState } from '@/components/ui/states'
+import type { Calibration } from '@/server/services/calibration'
 import { NotificationBell } from '@/components/layout/notification-bell'
 import { DailyLoadChart, StatTile, TimeByBars, WeekdayHeat } from './charts'
 
@@ -26,10 +27,12 @@ export function AnalyticsView({
   analytics,
   preset,
   weekStartsOn,
+  calibration,
 }: {
   analytics: AnalyticsResult
   preset: RangePreset
   weekStartsOn: number
+  calibration: Calibration
 }) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -98,6 +101,8 @@ export function AnalyticsView({
           </div>
         ) : (
           <>
+            <CalibrationBand calibration={calibration} />
+
             <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
               <StatTile
                 label="Meetings"
@@ -224,6 +229,46 @@ export function AnalyticsView({
 }
 
 /** The same figures as a table — the accessible equivalent of the charts. */
+/**
+ * The one figure on this page that is advice rather than a report.
+ *
+ * The rest of Analytics says where the time went, which is history. This says
+ * what to do differently on Monday: if an hour of your estimates has been
+ * ninety minutes of your week, the fix is to stop planning in the first number.
+ *
+ * It only appears once there is enough finished work behind it. An estimate
+ * habit inferred from three tasks would be believed just as readily as one
+ * inferred from thirty, and that is the danger.
+ */
+function CalibrationBand({ calibration }: { calibration: Calibration }) {
+  if (!calibration.confident) return null
+
+  const percent = Math.round(Math.abs(calibration.ratio - 1) * 100)
+  if (percent < 10) return null
+
+  const runsLong = calibration.ratio > 1
+  const example = Math.round((60 * calibration.ratio) / 5) * 5
+
+  return (
+    <div className="mb-5 flex flex-wrap items-baseline gap-x-2 gap-y-1 rounded-lg border border-border bg-surface px-4 py-3">
+      <Timer className="size-4 shrink-0 translate-y-0.5 text-fg-subtle" aria-hidden="true" />
+      <p className="text-[13px] text-fg">
+        Your tasks take{' '}
+        <span className="font-semibold">
+          {percent}% {runsLong ? 'longer' : 'less'}
+        </span>{' '}
+        than you estimate.
+        <span className="text-fg-muted">
+          {' '}
+          An hour you plan is usually {formatDuration(example)}. Based on{' '}
+          {calibration.samples} finished task
+          {calibration.samples === 1 ? '' : 's'}.
+        </span>
+      </p>
+    </div>
+  )
+}
+
 function DataTable({ analytics }: { analytics: AnalyticsResult }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-border bg-surface">

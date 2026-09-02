@@ -40,6 +40,16 @@ export type CreateTaskInput = z.infer<typeof createTaskSchema>
 
 export const updateTaskSchema = createTaskSchema.partial().extend({
   sortOrder: z.number().int().min(0).max(100000).optional(),
+  /**
+   * How long the task really took. Only ever set on a finished task, so it is
+   * here rather than on create. Null clears a figure entered by mistake.
+   */
+  actualMinutes: z
+    .number()
+    .int()
+    .min(1)
+    .max(1440, 'Anything longer than a day was more than one task')
+    .nullish(),
 })
 
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>

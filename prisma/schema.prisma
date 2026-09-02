@@ -627,6 +627,10 @@ model Task {
   timezone  String?
 
   estimatedMinutes Int?
+  /// How long it actually took, recorded on completion. Kept beside the
+  /// estimate rather than replacing it: the gap between the two is the point,
+  /// and it is what `calibration` learns from.
+  actualMinutes    Int?
   completedAt      DateTime?
   sortOrder        Int       @default(0)
 
