@@ -27,7 +27,11 @@ const MIN_HEIGHT_FOR_TIME_ROW = 30
 const LINE_HEIGHT = 15
 
 export interface EventChipProps {
-  event: EventOccurrence
+  /**
+   * May carry the draft layer's client-only marks. Typed loosely here so the
+   * shared domain type stays free of a concern only the calendar has.
+   */
+  event: EventOccurrence & { draftGhost?: boolean; draftMoved?: boolean }
   top: number
   height: number
   left: number
@@ -94,6 +98,8 @@ export const EventChip = React.memo(function EventChip({
           }
         }}
         data-past={isPast || undefined}
+        data-ghost={event.draftGhost || undefined}
+        data-draft={event.draftMoved || undefined}
         data-selected={selected || undefined}
         data-dragging={dragging || undefined}
         data-tentative={tentative || undefined}
@@ -114,6 +120,9 @@ export const EventChip = React.memo(function EventChip({
           height < 22 ? 'rounded-[3px]' : 'rounded-[5px]',
           continuesBefore && 'rounded-t-none border-t-transparent',
           continuesAfter && 'rounded-b-none border-b-transparent',
+          // A shadow is scenery: visible enough to compare a move against,
+          // never solid enough to be mistaken for the event itself.
+          event.draftGhost && 'pointer-events-none opacity-40',
           event.readOnly ? 'cursor-default' : 'cursor-grab active:cursor-grabbing',
         )}
       >
@@ -182,8 +191,13 @@ function ChipIcons({ event }: { event: EventOccurrence }) {
  * Everything the chip conveys visually, spelled out for screen readers —
  * including the state that colour alone would carry.
  */
-function ariaLabel(event: EventOccurrence, timeLabel: string): string {
+function ariaLabel(
+  event: EventOccurrence & { draftGhost?: boolean; draftMoved?: boolean },
+  timeLabel: string,
+): string {
   const parts = [timeLabel, event.title, `in ${event.calendarName}`]
+  if (event.draftGhost) parts.push('where it is now')
+  if (event.draftMoved) parts.push('proposed new time, not saved')
   if (event.location) parts.push(`at ${event.location}`)
   if (event.attendeeCount > 0) {
     parts.push(`${event.attendeeCount} guest${event.attendeeCount === 1 ? '' : 's'}`)

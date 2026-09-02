@@ -9,6 +9,8 @@ import { calendarPalette } from '@/config/app'
 import { dayKeyOf } from '@/lib/datetime'
 import type { EventDetail, EventOccurrence } from '@/types/domain'
 import { useAppShell } from '@/components/layout/app-shell-context'
+import { applyDraft, useDraft } from './draft-context'
+import { DraftBar } from './draft-bar'
 import { useCalendarShortcuts } from '@/hooks/use-global-shortcuts'
 import { Button } from '@/components/ui/button'
 import { EmptyState, ErrorBanner } from '@/components/ui/states'
@@ -63,6 +65,20 @@ export function CalendarSurface() {
   } = useCalendar()
 
   const { showInPanel, closePanel, rightPanelContent, categories } = useAppShell()
+  const draft = useDraft()
+
+  /*
+   * What the grid draws.
+   *
+   * In draft mode this is the week as the draft proposes it, plus a shadow of
+   * every moved event where it really still is. Outside draft mode it is the
+   * same array that came from the server, untouched — the transform costs one
+   * comparison when there is nothing to apply.
+   */
+  const shownEvents = React.useMemo(
+    () => applyDraft(events, draft.active ? draft.moves : []),
+    [events, draft.active, draft.moves],
+  )
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -197,6 +213,23 @@ export function CalendarSurface() {
       const previousStart = event.start
       const previousEnd = event.end
 
+      // Draft mode: record the intention and draw it, but write nothing. The
+      // shadow the grid then shows comes from the untouched original.
+      if (draft.active) {
+        draft.record({
+          occurrenceId: event.occurrenceId,
+          eventId: event.eventId,
+          title: event.title,
+          originalStart: previousStart,
+          originalEnd: previousEnd,
+          start: start.toISOString(),
+          end: end.toISOString(),
+          occurrenceStart: event.occurrenceStart ?? null,
+          isRecurring: event.isRecurring,
+        })
+        return
+      }
+
       await optimistic(
         (current) =>
           current.map((entry) =>
@@ -223,7 +256,7 @@ export function CalendarSurface() {
         },
       )
     },
-    [optimistic],
+    [optimistic, draft],
   )
 
   const moveToDay = React.useCallback(
@@ -372,7 +405,7 @@ export function CalendarSurface() {
     body = (
       <MonthView
         dayKeys={dayKeys}
-        events={events}
+        events={shownEvents}
         timezone={prefs.timezone}
         use24h={prefs.use24h}
         anchorKey={anchorKey}
@@ -403,7 +436,7 @@ export function CalendarSurface() {
     body = (
       <YearView
         year={Number(anchorKey.slice(0, 4))}
-        events={events}
+        events={shownEvents}
         timezone={prefs.timezone}
         weekStartsOn={prefs.weekStartsOn}
         showWeekNumbers={prefs.showWeekNumbers}
@@ -418,7 +451,7 @@ export function CalendarSurface() {
     body = (
       <AgendaView
         dayKeys={dayKeys}
-        events={events}
+        events={shownEvents}
         timezone={prefs.timezone}
         use24h={prefs.use24h}
         selectedId={selectedId}
@@ -434,7 +467,7 @@ export function CalendarSurface() {
     body = (
       <TimeGrid
         dayKeys={dayKeys}
-        events={events}
+        events={shownEvents}
         timezone={prefs.timezone}
         secondaryTimezones={prefs.secondaryTimezones}
         use24h={prefs.use24h}
@@ -482,6 +515,12 @@ export function CalendarSurface() {
       <div className="min-h-0 flex-1" aria-busy={loading}>
         {body}
       </div>
+
+      <DraftBar
+        timezone={prefs.timezone}
+        use24h={prefs.use24h}
+        onApplied={refresh}
+      />
 
       {/* ------------------------------------------------------- composer */}
       <EventComposer

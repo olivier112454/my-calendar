@@ -3,6 +3,7 @@ import { ensureSettings, requireUserPage } from '@/lib/auth'
 import { listCalendars } from '@/server/services/calendars'
 import { CalendarProvider } from '@/components/calendar/calendar-context'
 import { CalendarSurface } from '@/components/calendar/calendar-surface'
+import { DraftProvider } from '@/components/calendar/draft-context'
 import type { CalendarViewMode } from '@/types/domain'
 
 export const metadata: Metadata = { title: 'Calendar' }
@@ -45,7 +46,9 @@ export default async function CalendarPage({
       calendars={calendars}
       defaultView={(params.view as CalendarViewMode) ?? 'week'}
     >
-      <CalendarSurface />
+      <DraftProvider>
+        <CalendarSurface />
+      </DraftProvider>
     </CalendarProvider>
   )
 }

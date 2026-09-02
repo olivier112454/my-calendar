@@ -5,6 +5,7 @@ import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
+  FlaskConical,
   Filter,
   Plus,
   RefreshCw,
@@ -21,6 +22,7 @@ import { Badge, ColorDot } from '@/components/ui/primitives'
 import { MiniCalendar } from './mini-calendar'
 import { NotificationBell } from '@/components/layout/notification-bell'
 import { useCalendar, VIEW_MODES } from './calendar-context'
+import { useDraft } from './draft-context'
 import type { CalendarViewMode } from '@/types/domain'
 
 const VIEW_LABELS: Record<CalendarViewMode, { label: string; short: string; key: string }> = {
@@ -45,6 +47,7 @@ export function CalendarToolbar({
   onSync?: () => void
   syncing?: boolean
 }) {
+  const draft = useDraft()
   const {
     view,
     setView,
@@ -171,6 +174,24 @@ export function CalendarToolbar({
             ) : null}
           </PopoverContent>
         </Popover>
+
+        <Tooltip
+          content={
+            draft.active
+              ? 'Leave draft mode and discard the changes'
+              : 'Rearrange the week without saving anything'
+          }
+        >
+          <Button
+            variant={draft.active ? 'primary' : 'ghost'}
+            size="icon"
+            onClick={() => draft.setActive(!draft.active)}
+            aria-pressed={draft.active}
+            aria-label={draft.active ? 'Leave draft week' : 'Try a draft week'}
+          >
+            <FlaskConical />
+          </Button>
+        </Tooltip>
 
         {onSync ? (
           <Tooltip content="Sync connected calendars">
