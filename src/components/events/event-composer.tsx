@@ -2,11 +2,12 @@
 
 import * as React from 'react'
 import { toast } from 'sonner'
-import { AlertTriangle, ChevronDown, Eye, Video, Wand2, X } from 'lucide-react'
+import { AlertTriangle, ChevronDown, Eye, Scissors, Video, Wand2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { api, qs } from '@/lib/client/api'
 import { describeRule, customToRule, presetToRule } from '@/lib/recurrence'
 import { parseEventText } from '@/lib/nlp/parse-event'
+import type { Impact } from '@/server/services/impact'
 import type {
   CalendarSummary,
   CategorySummary,
@@ -100,6 +101,9 @@ export function EventComposer({
   const [saving, setSaving] = React.useState(false)
   const [scopePrompt, setScopePrompt] = React.useState(false)
   const [conflicts, setConflicts] = React.useState<ConflictWarning[]>([])
+  // What this slot costs the rest of the day, which is a different question
+  // from whether it clashes — and usually the more interesting one.
+  const [impact, setImpact] = React.useState<Impact | null>(null)
   const [dismissedParse, setDismissedParse] = React.useState(false)
   const titleRef = React.useRef<HTMLInputElement>(null)
 
@@ -142,6 +146,7 @@ export function EventComposer({
     if (!open || state.allDay || end <= start) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- resets the form to the event being edited when the dialog opens
       setConflicts([])
+      setImpact(null)
       return
     }
     const controller = new AbortController()
@@ -159,6 +164,20 @@ export function EventComposer({
         .catch(() => {
           // A failed conflict check must never block saving; stay quiet.
         })
+
+      // Fired alongside rather than after: the two are independent, and the
+      // heavier of the two failing must not take the other's warnings with it.
+      api
+        .get<Impact | null>(
+          `/api/events/impact${qs({
+            start: startIso,
+            end: endIso,
+            excludeEventId: editing?.eventId,
+          })}`,
+          { signal: controller.signal },
+        )
+        .then(setImpact)
+        .catch(() => {})
     }, 400)
 
     return () => {
@@ -368,6 +387,9 @@ export function EventComposer({
                 />
               </div>
 
+              {impact && impact.messages.length > 0 ? (
+                <CostNotice impact={impact} />
+              ) : null}
               {conflicts.length > 0 ? (
                 <ConflictNotice conflicts={conflicts} />
               ) : null}
@@ -565,6 +587,35 @@ function ConflictNotice({ conflicts }: { conflicts: ConflictWarning[] }) {
         ))}
       </ul>
       <p className="text-xs text-fg-subtle">You can save anyway.</p>
+    </div>
+  )
+}
+
+/**
+ * What this slot costs the day around it.
+ *
+ * Kept visually quieter than a conflict, and above it, because it is the softer
+ * of the two claims: nothing here is wrong, it is just worth knowing before you
+ * commit. It never argues — there is no "pick another time" button — because
+ * the person choosing knows things the calendar does not.
+ */
+function CostNotice({ impact }: { impact: Impact }) {
+  return (
+    <div
+      role="status"
+      className="space-y-1.5 rounded-lg border border-border bg-surface-2 px-3 py-2.5"
+    >
+      <p className="flex items-center gap-1.5 text-[13px] font-medium text-fg">
+        <Scissors className="size-3.5 text-fg-subtle" aria-hidden="true" />
+        What this costs your day
+      </p>
+      <ul className="space-y-0.5">
+        {impact.messages.map((message) => (
+          <li key={message} className="text-xs leading-relaxed text-fg-muted">
+            {message}
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }
