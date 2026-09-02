@@ -14,6 +14,7 @@ import {
 } from '@/lib/recurrence'
 import type { CalendarSummary, CategorySummary } from '@/types/domain'
 import { Button } from '@/components/ui/button'
+import { DatePicker } from '@/components/calendar/date-picker'
 import { Input } from '@/components/ui/input'
 import {
   Select,
@@ -150,13 +151,10 @@ export function DateTimeFields({
     <div className="space-y-2">
       <div className="flex flex-wrap items-end gap-2">
         <Field label="Starts" htmlFor="start-date" className="min-w-[8.5rem] flex-1">
-          <Input
+          <DatePicker
             id="start-date"
-            type="date"
             value={state.startDayKey}
-            onChange={(nativeEvent) =>
-              onChange({ startDayKey: nativeEvent.target.value })
-            }
+            onChange={(startDayKey) => onChange({ startDayKey })}
           />
         </Field>
         {!state.allDay ? (
@@ -185,12 +183,11 @@ export function DateTimeFields({
 
       <div className="flex flex-wrap items-end gap-2">
         <Field label="Ends" htmlFor="end-date" className="min-w-[8.5rem] flex-1" error={error}>
-          <Input
+          <DatePicker
             id="end-date"
-            type="date"
             min={state.startDayKey}
             value={state.endDayKey}
-            onChange={(nativeEvent) => onChange({ endDayKey: nativeEvent.target.value })}
+            onChange={(endDayKey) => onChange({ endDayKey })}
           />
         </Field>
         {!state.allDay ? (
@@ -423,16 +420,10 @@ function CustomRecurrenceEditor({
           </Select>
 
           {value.end?.type === 'until' ? (
-            <Input
-              type="date"
+            <DatePicker
               value={value.end.date}
-              onChange={(nativeEvent) =>
-                onChange({
-                  ...value,
-                  end: { type: 'until', date: nativeEvent.target.value },
-                })
-              }
-              className="w-40"
+              onChange={(date) => onChange({ ...value, end: { type: 'until', date } })}
+              className="w-44"
               aria-label="Repeat until"
             />
           ) : null}

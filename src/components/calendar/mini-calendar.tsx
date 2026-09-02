@@ -29,6 +29,12 @@ export interface MiniCalendarProps {
   showWeekNumbers?: boolean
   /** Day keys that have at least one event, drawn with a dot. */
   busyKeys?: Set<string>
+  /**
+   * Earliest selectable day. Days before it are shown but disabled rather than
+   * hidden, so the month keeps its shape and it stays obvious why a day cannot
+   * be picked — an end date before its start, usually.
+   */
+  minKey?: string
   onSelect: (dayKey: string) => void
   onMonthChange?: (monthKey: string) => void
   showHeader?: boolean
@@ -43,6 +49,7 @@ export function MiniCalendar({
   timezone,
   showWeekNumbers = false,
   busyKeys,
+  minKey,
   onSelect,
   onMonthChange,
   showHeader = true,
@@ -83,6 +90,7 @@ export function MiniCalendar({
     if (nativeEvent.key in moves) {
       nativeEvent.preventDefault()
       const target = addDaysToKey(dayKey, moves[nativeEvent.key]!)
+      if (minKey && target < minKey) return
       onSelect(target)
       // Follow the cursor into the neighbouring month when it crosses over.
       if (target.slice(0, 7) !== monthPrefix) onMonthChange?.(target)
@@ -166,6 +174,7 @@ export function MiniCalendar({
                 const isSelected = dayKey === selectedKey
                 const inRange = range.has(dayKey)
                 const outside = dayKey.slice(0, 7) !== monthPrefix
+                const blocked = minKey !== undefined && dayKey < minKey
 
                 return (
                   <button
@@ -176,6 +185,7 @@ export function MiniCalendar({
                     tabIndex={isSelected || (!selectedKey && isToday) ? 0 : -1}
                     aria-selected={isSelected}
                     aria-current={isToday ? 'date' : undefined}
+                    disabled={blocked}
                     onClick={() => onSelect(dayKey)}
                     onKeyDown={(nativeEvent) => handleKeyDown(nativeEvent, dayKey)}
                     className={cn(
@@ -187,6 +197,7 @@ export function MiniCalendar({
                         ? 'bg-accent font-medium text-accent-fg'
                         : 'hover:bg-surface-2',
                       isToday && !isSelected && 'font-semibold text-accent',
+                      blocked && 'cursor-not-allowed text-fg-subtle opacity-40 hover:bg-transparent',
                     )}
                   >
                     {Number(dayKey.slice(8))}

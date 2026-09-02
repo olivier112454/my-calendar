@@ -7,6 +7,7 @@ import { api } from '@/lib/client/api'
 import { formatEventRange, wallToUtc, utcToWall } from '@/lib/datetime'
 import type { TaskPriority, TaskStatus, TaskSummary } from '@/types/domain'
 import { Button } from '@/components/ui/button'
+import { DatePicker } from '@/components/calendar/date-picker'
 import { Input, Textarea } from '@/components/ui/input'
 import { Sheet, SheetContent } from '@/components/ui/overlay'
 import {
@@ -230,14 +231,13 @@ export function TaskEditor({
 
             <div className="grid grid-cols-2 gap-3">
               <Field label="Due date" htmlFor="task-due">
-                <Input
+                <DatePicker
                   id="task-due"
-                  type="date"
                   value={dueValue}
-                  onChange={(nativeEvent) =>
+                  onChange={(dayKey) =>
                     void patch({
-                      dueAt: nativeEvent.target.value
-                        ? wallToUtc(`${nativeEvent.target.value}T17:00`, timezone).toISOString()
+                      dueAt: dayKey
+                        ? wallToUtc(`${dayKey}T17:00`, timezone).toISOString()
                         : null,
                     })
                   }
