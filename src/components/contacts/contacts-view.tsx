@@ -7,6 +7,7 @@ import {
   Building2,
   CalendarPlus,
   Contact as ContactIcon,
+  Hourglass,
   Mail,
   Phone,
   Plus,
@@ -20,6 +21,7 @@ import { debounce } from '@/lib/utils'
 import { formatEventRange, formatRelative } from '@/lib/datetime'
 import type { CalendarSummary, ContactSummary } from '@/types/domain'
 import type { ContactDetail } from '@/server/services/contacts'
+import type { OverdueContact } from '@/server/services/cadence'
 import { Button } from '@/components/ui/button'
 import { Input, InputWithIcon, Textarea } from '@/components/ui/input'
 import { Avatar, Badge, Field } from '@/components/ui/primitives'
@@ -43,6 +45,7 @@ export function ContactsView({
   use24h,
   canSync,
   defaultCalendarId,
+  overdue,
 }: {
   initialContacts: ContactSummary[]
   calendars: CalendarSummary[]
@@ -50,6 +53,7 @@ export function ContactsView({
   use24h: boolean
   canSync: boolean
   defaultCalendarId: string | null
+  overdue: OverdueContact[]
 }) {
   const router = useRouter()
   const { categories } = useAppShell()
@@ -149,6 +153,9 @@ export function ContactsView({
 
       <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-3xl px-4 py-3">
+          {overdue.length > 0 && !query ? (
+            <OutOfTouch people={overdue} onOpen={setOpenId} />
+          ) : null}
           {loading && contacts.length === 0 ? (
             <ListSkeleton rows={8} />
           ) : contacts.length === 0 ? (
@@ -643,4 +650,76 @@ function CreateContactDialog({
       </DialogContent>
     </Dialog>
   )
+}
+
+/**
+ * The people who have quietly slipped.
+ *
+ * Deliberately phrased against each person's own rhythm rather than in bare
+ * elapsed time: "usually every 2 weeks" is what makes eight weeks mean
+ * something, and without it this would be the same useless "last contacted"
+ * column every CRM already has.
+ *
+ * It is a short list, and it says nothing at all when there is not enough
+ * history — a nagging list of everyone you have ever emailed gets ignored, and
+ * then so does the one entry that mattered.
+ */
+function OutOfTouch({
+  people,
+  onOpen,
+}: {
+  people: OverdueContact[]
+  onOpen: (contactId: string) => void
+}) {
+  return (
+    <section
+      aria-labelledby="out-of-touch"
+      className="mb-4 rounded-lg border border-border bg-surface-2 px-3 py-2.5"
+    >
+      <h2
+        id="out-of-touch"
+        className="mb-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-fg-subtle"
+      >
+        <Hourglass className="size-3.5" aria-hidden="true" />
+        Out of touch
+      </h2>
+
+      <ul className="space-y-0.5">
+        {people.map((person) => (
+          <li key={person.contactId}>
+            <button
+              type="button"
+              onClick={() => onOpen(person.contactId)}
+              className="flex w-full items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left transition-colors hover:bg-surface"
+            >
+              <Avatar name={person.name ?? person.email} src={person.avatarUrl} size="sm" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[13px] font-medium text-fg">
+                  {person.name ?? person.email}
+                </span>
+                <span className="block truncate text-[11px] text-fg-muted">
+                  {describeGap(person.cadence.daysSince!)} — you usually meet{' '}
+                  {describeCadence(person.cadence.typicalGapDays!)}
+                </span>
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+/** "8 weeks ago", "5 months ago" — rounded to the unit a person would say. */
+function describeGap(days: number): string {
+  if (days < 14) return `Last met ${days} days ago`
+  if (days < 70) return `Last met ${Math.round(days / 7)} weeks ago`
+  return `Last met ${Math.round(days / 30)} months ago`
+}
+
+/** "every 2 weeks", "about every 3 months". */
+function describeCadence(gapDays: number): string {
+  if (gapDays <= 10) return `every ${Math.max(1, Math.round(gapDays))} days`
+  if (gapDays < 60) return `every ${Math.round(gapDays / 7)} weeks`
+  return `about every ${Math.round(gapDays / 30)} months`
 }
