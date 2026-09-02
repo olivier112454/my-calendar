@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { CalendarClock, CheckSquare, PanelRightClose } from 'lucide-react'
 import { api } from '@/lib/client/api'
@@ -24,6 +24,12 @@ import { useAppShell } from './app-shell-context'
  *
  * Both lists come from the layout's server render rather than their own fetch,
  * so a change anywhere in the app updates them in the same pass as the page.
+ *
+ * On Today the first question is already answered twice over — by the "up next"
+ * card at the top and by the timeline below it — so repeating the day here in a
+ * third place spent a column on a copy. The loose tasks are a different matter:
+ * Today only reports how many there are, while this list is the one place they
+ * can be picked up and dropped onto the grid, so that half stays.
  */
 export function RightPanel() {
   const {
@@ -37,6 +43,8 @@ export function RightPanel() {
     looseTasks,
   } = useAppShell()
   const router = useRouter()
+  const pathname = usePathname()
+  const dayAlreadyOnPage = pathname === '/today'
 
   if (rightPanelContent?.kind === 'event') {
     return (
@@ -57,7 +65,9 @@ export function RightPanel() {
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-13 shrink-0 items-center justify-between px-3">
-        <h2 className="text-[13px] font-semibold text-fg">Up next</h2>
+        <h2 className="text-[13px] font-semibold text-fg">
+          {dayAlreadyOnPage ? 'Needs a slot' : 'Up next'}
+        </h2>
         <Button
           variant="ghost"
           size="iconSm"
@@ -69,13 +79,20 @@ export function RightPanel() {
       </div>
 
       <div className="scrollbar-thin min-h-0 flex-1 space-y-5 overflow-y-auto px-3 pb-3">
-        <RestOfDay
-          events={todayEvents}
+        {dayAlreadyOnPage ? null : (
+          <RestOfDay
+            events={todayEvents}
+            timezone={timezone}
+            use24h={use24h}
+            onCreate={() => requestCreate()}
+          />
+        )}
+        <UnscheduledTasks
+          tasks={looseTasks}
           timezone={timezone}
-          use24h={use24h}
-          onCreate={() => requestCreate()}
+          // The column heading already says it when this is the only list.
+          showHeading={!dayAlreadyOnPage}
         />
-        <UnscheduledTasks tasks={looseTasks} timezone={timezone} />
       </div>
     </div>
   )
@@ -168,18 +185,24 @@ export function RestOfDay({
 function UnscheduledTasks({
   tasks,
   timezone,
+  showHeading = true,
 }: {
   tasks: TaskSummary[]
   timezone: string
+  showHeading?: boolean
 }) {
   const router = useRouter()
 
   return (
     <section>
       <div className="flex items-center justify-between px-1 pb-1">
-        <h3 className="text-[11px] font-medium uppercase tracking-wide text-fg-subtle">
-          Needs a slot
-        </h3>
+        {showHeading ? (
+          <h3 className="text-[11px] font-medium uppercase tracking-wide text-fg-subtle">
+            Needs a slot
+          </h3>
+        ) : (
+          <span />
+        )}
         <Link
           href="/schedule"
           className="text-[11px] text-fg-subtle underline-offset-2 hover:text-fg-muted hover:underline"

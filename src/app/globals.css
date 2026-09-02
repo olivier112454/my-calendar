@@ -378,13 +378,68 @@ html[data-reduce-motion='true'] *::after {
   --event-text: color-mix(in oklab, var(--event-color) 30%, var(--fg));
 }
 
+/*
+ * The past recedes, but stays readable.
+ *
+ * Dimming the whole chip with opacity took the text down together with the
+ * fill it sits on. Against a dark page that still scraped 4.5:1, but against a
+ * light one it fell to 3.1:1 — under the 4.5:1 body text needs, and the reason
+ * the light theme looked washed out where the dark one did not. Fading the
+ * fill and greying the text as two separate steps keeps both the signal and
+ * the legibility.
+ *
+ * The two themes need different mixes because their live chips already do:
+ * light tints the text with the calendar colour, dark tints the fill instead.
+ * Worst case measured across all fourteen calendar colours — Red in light,
+ * Graphite in dark, both near-neutral enough to be the hard cases — is 4.72:1
+ * and 5.04:1, against 6.07:1 and 8.30:1 for a chip that has not passed yet.
+ */
 .event-chip[data-past='true'] {
-  opacity: 0.62;
+  --event-fill: color-mix(in oklab, var(--event-color) 8%, var(--surface));
+  --event-line: color-mix(in oklab, var(--event-color) 20%, var(--surface));
+  --event-text: color-mix(in oklab, var(--event-color) 60%, var(--fg-muted));
+}
+
+.dark .event-chip[data-past='true'] {
+  --event-fill: color-mix(in oklab, var(--event-color) 12%, var(--surface));
+  --event-line: color-mix(in oklab, var(--event-color) 24%, var(--surface));
+  /* Less colour than light needs: Graphite mixed any further into the muted
+     grey drags the text down towards its own fill and lands at 4.46:1. */
+  --event-text: color-mix(in oklab, var(--event-color) 20%, var(--fg-muted));
+}
+
+/*
+ * Cancelled and declined had the same fault as past, and worse: opacity 0.5
+ * took the text to 2.27:1 in light and 3.17:1 in dark. The line through the
+ * title is what actually says "cancelled" — the fade only made it hard to read
+ * what it is you are no longer going to. Worst case is now 5.14:1 and 5.44:1.
+ *
+ * Declined shares the treatment without the line: you turning an invitation
+ * down does not cross the event out of everyone else's day.
+ */
+.event-chip[data-cancelled='true'],
+.event-chip[data-declined='true'] {
+  --event-fill: color-mix(in oklab, var(--event-color) 6%, var(--surface));
+  --event-line: color-mix(in oklab, var(--event-color) 16%, var(--surface));
+  --event-text: color-mix(in oklab, var(--event-color) 30%, var(--fg-muted));
+}
+
+.dark .event-chip[data-cancelled='true'],
+.dark .event-chip[data-declined='true'] {
+  --event-fill: color-mix(in oklab, var(--event-color) 10%, var(--surface));
+  --event-line: color-mix(in oklab, var(--event-color) 20%, var(--surface));
+  --event-text: color-mix(in oklab, var(--event-color) 15%, var(--fg-muted));
 }
 
 .event-chip[data-cancelled='true'] {
   text-decoration: line-through;
-  opacity: 0.5;
+}
+
+/* Something has to carry "you said no" now that the fade is gone, and it must
+   not be colour alone. A dashed edge reads at a glance and survives both
+   themes and greyscale. */
+.event-chip[data-declined='true'] {
+  border-style: dashed;
 }
 
 /* A declined or tentative event reads as provisional: hatched fill rather than

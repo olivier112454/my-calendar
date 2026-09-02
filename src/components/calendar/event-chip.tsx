@@ -98,6 +98,7 @@ export const EventChip = React.memo(function EventChip({
         data-dragging={dragging || undefined}
         data-tentative={tentative || undefined}
         data-cancelled={event.status === 'CANCELLED' || undefined}
+        data-declined={declined || undefined}
         aria-label={ariaLabel(event, timeLabel)}
         title={`${timeLabel} · ${event.title}`}
         style={
@@ -113,7 +114,6 @@ export const EventChip = React.memo(function EventChip({
           height < 22 ? 'rounded-[3px]' : 'rounded-[5px]',
           continuesBefore && 'rounded-t-none border-t-transparent',
           continuesAfter && 'rounded-b-none border-b-transparent',
-          declined && 'opacity-55',
           event.readOnly ? 'cursor-default' : 'cursor-grab active:cursor-grabbing',
         )}
       >
