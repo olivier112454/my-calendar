@@ -10,8 +10,17 @@ import { minutesToPixels } from '@/lib/calendar-layout'
  * for first.
  */
 
-export function useNowMinute(timezone: string): number {
-  const [minute, setMinute] = React.useState(() => minutesIntoDay(new Date(), timezone))
+/**
+ * Minutes into the day, or null until the browser has told us.
+ *
+ * Null rather than a guess, because the server has a clock too and it is not
+ * this one. Seeding the state from `new Date()` renders the server's minute
+ * into the HTML, and if the clock ticks between that and hydration React finds
+ * different text and throws away the tree. Nobody misses a "now" line for the
+ * few milliseconds before it appears.
+ */
+export function useNowMinute(timezone: string): number | null {
+  const [minute, setMinute] = React.useState<number | null>(null)
 
   React.useEffect(() => {
     const update = () => setMinute(minutesIntoDay(new Date(), timezone))

@@ -477,3 +477,70 @@ html[data-reduce-motion='true'] *::after {
   opacity: 0.92;
   z-index: 40;
 }
+
+/* ---------------------------------------------------------------- touch */
+
+/*
+ * On a finger, small is not tidy — it is a miss.
+ *
+ * The interface is tuned for a mouse, where a 24px control is comfortable and
+ * a 44px one is bloated. Rather than compromise the desktop layout, the
+ * minimums are raised only where the pointer is actually coarse: the same
+ * markup, more room to land on. Nothing here changes what anything looks like
+ * on a laptop.
+ *
+ * `pointer: coarse` and not a width breakpoint, because the question is what
+ * you are pointing with, not how wide the window is — a touchscreen laptop
+ * needs this and a narrow desktop window does not.
+ */
+@media (pointer: coarse) {
+  /*
+   * Anything you press. `min-*` rather than fixed sizes so a two-line label
+   * still grows, and width as well as height because an icon button is 28px
+   * across and a finger is not.
+   *
+   * Links are included because a button rendered `asChild` becomes an `<a>`.
+   * A link inside a sentence stays untouched either way: these properties do
+   * not apply to inline boxes, so running text keeps its line height.
+   */
+  button:not(.event-chip),
+  [role='button'],
+  [role='radio'],
+  a[href] {
+    min-height: 36px;
+    min-width: 36px;
+  }
+
+  /*
+   * Calendar chips are the exception: their height *is* the duration. Growing a
+   * fifteen-minute block to 36px would draw it over the half hour beneath it and
+   * lie about the day. Tapping one is helped by the chip being wide, and by the
+   * details panel rather than a bigger box.
+   */
+
+  /*
+   * A link inside a sentence cannot take a height — inline boxes ignore it.
+   * This gives one a real target without disturbing the line it sits in: the
+   * padding grows the hit area, the negative margin gives the space back to
+   * the paragraph, so the text does not shift.
+   */
+  .inline-target {
+    display: inline-block;
+    padding-block: 8px;
+    margin-block: -8px;
+  }
+
+  /* The day numbers in the month grid: a tap target, not a label. */
+  .month-day-button {
+    min-height: 32px;
+    min-width: 32px;
+  }
+
+  /*
+   * Hover-only affordances can never be revealed by a finger, so they would sit
+   * invisible over the cell and swallow taps meant for the day itself.
+   */
+  .hover-only {
+    display: none;
+  }
+}

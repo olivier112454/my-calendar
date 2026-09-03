@@ -227,7 +227,10 @@ export function ScheduleView({
           </p>
           <p className="mt-1.5 text-xs text-fg-subtle">
             Working hours: {workingHoursSummary} ·{' '}
-            <Link href="/settings/general" className="underline underline-offset-2">
+            <Link
+              href="/settings/general"
+              className="inline-target underline underline-offset-2"
+            >
               change
             </Link>
           </p>

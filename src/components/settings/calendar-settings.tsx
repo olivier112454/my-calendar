@@ -117,10 +117,13 @@ export function CalendarSettings({
       >
         <ul className="divide-y divide-border">
           {calendars.map((calendar) => (
-            <li key={calendar.id} className="flex items-center gap-3 py-3">
+            <li
+              key={calendar.id}
+              className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3"
+            >
               <ColorDot color={calendar.color} size={12} />
 
-              <div className="min-w-0 flex-1">
+              <div className="min-w-[7rem] flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-[13px] font-medium text-fg">{calendar.name}</span>
                   {calendar.isDefault ? <Badge tone="accent">Default</Badge> : null}
@@ -131,8 +134,8 @@ export function CalendarSettings({
                 ) : null}
               </div>
 
-              <div className="flex shrink-0 items-center gap-1">
-                <div className="flex flex-wrap gap-1">
+              <div className="flex w-full items-center justify-between gap-1 sm:w-auto sm:justify-start">
+                <div className="flex flex-wrap items-center gap-1">
                   {calendarPalette.slice(0, 7).map((entry) => (
                     <button
                       key={entry.value}

@@ -21,6 +21,7 @@ import type { EventOccurrence } from '@/types/domain'
 import { AllDayChip, EventChip } from './event-chip'
 import { TASK_DRAG_TYPE, type TaskDragPayload } from '@/components/tasks/task-row'
 import { CurrentTimeIndicator, useNowMinute } from './current-time-indicator'
+import { useNow } from '@/hooks/use-now'
 import {
   minuteToInstant,
   useGridInteraction,
@@ -81,6 +82,9 @@ export function TimeGrid({
   const surfaceRef = React.useRef<HTMLDivElement>(null)
   const today = todayKey(timezone)
   const nowMinute = useNowMinute(timezone)
+  // Reading the clock while rendering makes the same props draw differently on
+  // the server and in the browser, which costs the whole tree at hydration.
+  const now = useNow()
 
   const { preview, startCreate, startMove, startResize } = useGridInteraction({
     surfaceRef,
@@ -99,12 +103,15 @@ export function TimeGrid({
   React.useEffect(() => {
     const container = scrollRef.current
     if (!container) return
-    const targetHour = scrollToHour ?? Math.max(0, Math.floor(nowMinute / 60) - 2)
+    // Read the clock here rather than from `nowMinute`: that is null until the
+    // browser's first tick, and an effect only ever runs in the browser anyway.
+    // Taking it from state landed the view on midnight instead of the workday.
+    const currentHour = Math.floor(minutesIntoDay(new Date(), timezone) / 60)
+    const targetHour = scrollToHour ?? Math.max(0, currentHour - 2)
     container.scrollTop = Math.max(0, targetHour * hourHeight)
-    // nowMinute intentionally omitted: re-scrolling every minute would fight
-    // the user for control of the scroll position.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scrollKey, hourHeight, scrollToHour])
+    // Deliberately keyed on the view, not the clock: re-scrolling every minute
+    // would fight the user for control of the scroll position.
+  }, [scrollKey, hourHeight, scrollToHour, timezone])
 
   const allDay = React.useMemo(
     () => layoutAllDayEvents(events, dayKeys, timezone),
@@ -365,7 +372,7 @@ export function TimeGrid({
                       timezone={timezone}
                       use24h={use24h}
                       selected={positioned.event.occurrenceId === selectedId}
-                      isPast={Date.parse(positioned.event.end) < Date.now()}
+                      isPast={now > 0 && Date.parse(positioned.event.end) < now}
                       dragging={isDragging}
                       continuesBefore={positioned.continuesBefore}
                       continuesAfter={positioned.continuesAfter}
@@ -388,7 +395,7 @@ export function TimeGrid({
 
                 {dayKey === today ? (
                   <CurrentTimeIndicator
-                    minute={nowMinute}
+                    minute={nowMinute ?? 0}
                     hourHeight={hourHeight}
                     use24h={use24h}
                   />

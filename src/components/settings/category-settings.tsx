@@ -160,7 +160,9 @@ function CategoryRow({
   }
 
   return (
-    <li className="flex items-center gap-3 py-3">
+    // Wraps on a narrow screen: on a phone the swatch row alone is wider than
+    // a name field can share a line with.
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3">
       <ColorDot color={category.color} size={12} />
 
       <Input
@@ -172,11 +174,11 @@ function CategoryRow({
           if (nativeEvent.key === 'Escape') setName(category.name)
         }}
         aria-label={`Name of ${category.name}`}
-        className="h-8 min-w-0 flex-1"
+        className="h-8 min-w-[7rem] flex-1"
         maxLength={60}
       />
 
-      <div className="flex shrink-0 items-center gap-1">
+      <div className="flex w-full items-center justify-between gap-1 sm:w-auto sm:justify-start">
         <Swatches
           value={category.color}
           label={category.name}
@@ -231,10 +233,10 @@ function NewCategoryRow({
   }
 
   return (
-    <li className="flex items-center gap-3 py-3">
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3">
       <ColorDot color={color} size={12} />
 
-      <div className="min-w-0 flex-1">
+      <div className="min-w-[7rem] flex-1">
         <Input
           ref={inputRef}
           value={name}
@@ -253,7 +255,7 @@ function NewCategoryRow({
         ) : null}
       </div>
 
-      <div className="flex shrink-0 items-center gap-1">
+      <div className="flex w-full items-center justify-between gap-1 sm:w-auto sm:justify-start">
         <Swatches value={color} label="new category" onPick={setColor} />
         <Button
           variant="ghost"
@@ -282,7 +284,7 @@ function Swatches({
   onPick: (color: string) => void
 }) {
   return (
-    <div className="flex flex-wrap gap-1">
+    <div className="flex flex-wrap items-center gap-1">
       {calendarPalette.slice(0, 7).map((entry) => (
         <button
           key={entry.value}

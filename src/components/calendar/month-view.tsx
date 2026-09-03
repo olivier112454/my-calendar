@@ -250,7 +250,7 @@ function MonthCell({
             month: 'long',
           })}`}
           className={cn(
-            'flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[11px] font-medium tabular-nums transition-colors',
+            'month-day-button flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[11px] font-medium tabular-nums transition-colors',
             isToday
               ? 'bg-accent text-accent-fg'
               : isOutside
@@ -271,7 +271,7 @@ function MonthCell({
             day: 'numeric',
             month: 'long',
           })}`}
-          className="rounded p-0.5 text-fg-subtle opacity-0 transition-opacity hover:bg-surface-2 hover:text-fg focus-visible:opacity-100 group-hover:opacity-100"
+          className="hover-only rounded p-0.5 text-fg-subtle opacity-0 transition-opacity hover:bg-surface-2 hover:text-fg focus-visible:opacity-100 group-hover:opacity-100"
         >
           <svg viewBox="0 0 12 12" className="size-3" aria-hidden="true">
             <path
