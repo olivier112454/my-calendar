@@ -22,9 +22,17 @@ import type { EventOccurrence } from '@/types/domain'
 
 /** Below this height the handles would cover the whole block. */
 const MIN_HEIGHT_FOR_HANDLES = 34
-/** Below this the time and title share one line. */
-const MIN_HEIGHT_FOR_TIME_ROW = 30
 const LINE_HEIGHT = 15
+/** `py-1` top and bottom. Counted, not estimated — see below. */
+const PADDING_Y = 8
+/**
+ * Below this the time and title share one line.
+ *
+ * Two stacked rows need both line boxes *and* the padding. Reserving less means
+ * a half-hour block renders a title it has no room for, and `overflow-hidden`
+ * slices it through the middle — which is what this used to do at 30px.
+ */
+const MIN_HEIGHT_FOR_TIME_ROW = LINE_HEIGHT * 2 + PADDING_Y
 
 export interface EventChipProps {
   /**
@@ -76,7 +84,7 @@ export const EventChip = React.memo(function EventChip({
 
   // Lines available for the title once the time row and padding are accounted
   // for. The gaps count too — leaving them out overestimates and clips.
-  const reserved = stacked ? LINE_HEIGHT + 6 : 6
+  const reserved = stacked ? LINE_HEIGHT + PADDING_Y : PADDING_Y
   const titleLines = Math.max(1, Math.floor((height - reserved) / LINE_HEIGHT))
 
   const declined = event.myResponse === 'DECLINED'
