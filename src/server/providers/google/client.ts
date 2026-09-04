@@ -17,7 +17,15 @@ const BASE_BACKOFF_MS = 400
 
 export interface GoogleRequestOptions {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
-  query?: Record<string, string | number | boolean | undefined | null>
+  /**
+   * An array value is repeated rather than joined: Google's APIs expect
+   * `?metadataHeaders=Subject&metadataHeaders=From`, and a comma-separated
+   * string is read as one header name that does not exist.
+   */
+  query?: Record<
+    string,
+    string | number | boolean | undefined | null | readonly string[]
+  >
   body?: unknown
   /** Overrides the default JSON accept header (used for .ics downloads). */
   accept?: string
@@ -31,7 +39,11 @@ export async function googleFetch<T>(
   const target = new URL(url)
   for (const [key, value] of Object.entries(options.query ?? {})) {
     if (value === undefined || value === null || value === '') continue
-    target.searchParams.set(key, String(value))
+    if (Array.isArray(value)) {
+      for (const entry of value) target.searchParams.append(key, String(entry))
+    } else {
+      target.searchParams.set(key, String(value))
+    }
   }
 
   let lastError: unknown

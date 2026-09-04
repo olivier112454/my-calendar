@@ -82,7 +82,7 @@ export class GmailProvider implements MailProvider {
       const message = await googleFetch<GmailMessage>(
         this.account,
         `${GMAIL_API}/users/me/messages/${encodeURIComponent(externalId)}`,
-        { query: { format: 'metadata', metadataHeaders: METADATA_HEADERS.join(',') } },
+        { query: { format: 'metadata', metadataHeaders: METADATA_HEADERS } },
       )
       return this.toRemoteMessage(message)
     } catch (error) {
@@ -131,7 +131,7 @@ export class GmailProvider implements MailProvider {
             {
               query: {
                 format: 'metadata',
-                metadataHeaders: METADATA_HEADERS.join(','),
+                metadataHeaders: METADATA_HEADERS,
               },
             },
           ).catch(() => null),

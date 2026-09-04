@@ -43,6 +43,18 @@ jobs:
           # Fail loudly: a quietly broken scheduler means quietly no reminders.
           test "$status" = "200"
 
+      # Pulling calendars and mail from connected accounts. Every run rather
+      # than hourly: this is what makes a suggestion appear shortly after the
+      # mail arrives, instead of up to an hour later.
+      - name: Sync connected accounts
+        if: ${{ success() }}
+        run: |
+          curl --silent --show-error --max-time 120 \
+            -X POST \
+            -H "Authorization: Bearer ${{ secrets.JOBS_SECRET }}" \
+            "${{ secrets.APP_URL }}/api/jobs/run?job=sync" || true
+          echo
+
       # The slower jobs ride along on the first run of each hour rather than
       # needing a second workflow with its own schedule.
       - name: Hourly work
