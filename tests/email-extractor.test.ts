@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { emailExtractor, SUGGESTION_THRESHOLD } from '@/server/services/email-extractor'
+import { RuleBasedExtractor, SUGGESTION_THRESHOLD } from '@/server/services/email-extractor'
 import type { RemoteMessage } from '@/server/providers/types'
 import { AMS } from './helpers'
 
@@ -30,10 +30,16 @@ function message(overrides: Partial<RemoteMessage> = {}): RemoteMessage {
   }
 }
 
-const extract = (input: Partial<RemoteMessage>) =>
-  emailExtractor.extract(message(input), AMS) as ReturnType<
-    typeof emailExtractor.extract
-  > & { category: string; draft: unknown; confidence: number }
+/**
+ * The rules engine on its own, not the exported extractor.
+ *
+ * What is being pinned here is which patterns fire and which must not — a
+ * question about the patterns, not about whether a model was reachable. Testing
+ * the composed extractor would make these depend on a network call and drop the
+ * synchronous reads below.
+ */
+const rules = new RuleBasedExtractor()
+const extract = (input: Partial<RemoteMessage>) => rules.extract(message(input), AMS)
 
 describe('recognising appointments', () => {
   it('reads a meeting proposal', () => {

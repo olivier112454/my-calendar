@@ -2,6 +2,7 @@ import 'server-only'
 import { parseEventText } from '@/lib/nlp/parse-event'
 import type { EventDraft } from '@/types/domain'
 import type { RemoteMessage } from '../providers/types'
+import { assistant } from '../providers/assistant/registry'
 
 /**
  * Turns a message into a proposed event.
@@ -232,5 +233,56 @@ function participantsFrom(
   return out.slice(0, 25)
 }
 
+/**
+ * Rules first, model second.
+ *
+ * The rules engine is instant, free and offline, and it is right about the
+ * things it recognises — a flight confirmation or a Google Meet invitation
+ * follows a shape. It is the informal half it cannot read: "zullen we
+ * donderdag na de lunch even bijpraten?" has no pattern to match.
+ *
+ * So the model is asked only when the rules are unsure. That keeps the cost
+ * proportional to the hard cases rather than to the mailbox, and it means a
+ * model outage degrades to what the app did before rather than to nothing.
+ *
+ * The model's answer replaces the rules' only when it is more confident; a
+ * confident pattern match beats an uncertain reading of the same message.
+ */
+class AssistedExtractor implements EmailEventExtractor {
+  constructor(private readonly rules: EmailEventExtractor) {}
+
+  async extract(message: RemoteMessage, timezone: string): Promise<ExtractionResult> {
+    const base = await this.rules.extract(message, timezone)
+
+    const service = assistant()
+    // Already sure, or nothing to work with: no reason to spend a request.
+    if (!service || base.confidence >= CONFIDENT_ENOUGH) return base
+    if (!message.subject && !message.snippet) return base
+
+    try {
+      const read = await service.readEvent({
+        subject: message.subject,
+        fromName: message.fromName,
+        fromEmail: message.fromEmail,
+        snippet: message.snippet,
+        timezone,
+        nowIso: new Date().toISOString(),
+      })
+
+      if (read.confidence <= base.confidence) return base
+      return { category: read.category, draft: read.draft, confidence: read.confidence }
+    } catch {
+      // A model that is down, rate-limited or slow must never cost the user
+      // their inbox. The rules engine already produced an answer; use it.
+      return base
+    }
+  }
+}
+
+/** Above this the rules engine is trusted on its own. */
+const CONFIDENT_ENOUGH = 0.7
+
 /** The extractor the app uses. One place to swap in a different strategy. */
-export const emailExtractor: EmailEventExtractor = new RuleBasedExtractor()
+export const emailExtractor: EmailEventExtractor = new AssistedExtractor(
+  new RuleBasedExtractor(),
+)

@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db'
 import { requireUserPage } from '@/lib/auth'
 import { getSession } from '@/lib/session'
 import { listSessions } from '@/server/services/settings'
+import { assistant } from '@/server/providers/assistant/registry'
 import { PrivacySettings } from '@/components/settings/privacy-settings'
 
 export const metadata: Metadata = { title: 'Privacy & data' }
@@ -23,6 +24,7 @@ export default async function PrivacySettingsPage() {
       emailCount={emailCount}
       connectedCount={connectedCount}
       userEmail={user.email}
+      assistantName={assistant()?.name ?? null}
     />
   )
 }

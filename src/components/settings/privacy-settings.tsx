@@ -25,11 +25,14 @@ export function PrivacySettings({
   emailCount,
   connectedCount,
   userEmail,
+  assistantName,
 }: {
   sessions: SessionSummary[]
   emailCount: number
   connectedCount: number
   userEmail: string
+  /** The model reading the Inbox, or null when none is configured. */
+  assistantName: string | null
 }) {
   const router = useRouter()
   const [deleteOpen, setDeleteOpen] = React.useState(false)
@@ -85,6 +88,19 @@ export function PrivacySettings({
           <span className="text-[13px] tabular-nums text-fg-muted">
             {emailCount} reference{emailCount === 1 ? '' : 's'}
           </span>
+        </SettingsRow>
+
+        <SettingsRow
+          label="Reading mail with a model"
+          description={
+            assistantName
+              ? `Messages the rules cannot read are sent to ${assistantName} to be read: the sender, the subject and the preview line. Never the body — this app does not fetch it. Nothing is sent about a message the rules already understood.`
+              : 'Off. Mail is read by pattern matching on this server; nothing leaves it.'
+          }
+        >
+          <Badge tone={assistantName ? 'accent' : 'neutral'}>
+            {assistantName ? 'On' : 'Off'}
+          </Badge>
         </SettingsRow>
 
         <SettingsRow

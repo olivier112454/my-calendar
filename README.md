@@ -183,6 +183,8 @@ secrets already filled in.
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | no | Enables push notifications. See [Notifications](#notifications) |
 | `VAPID_PRIVATE_KEY` | no | The other half of the pair. Changing it makes every device re-subscribe |
 | `VAPID_SUBJECT` | no | Contact address push services can reach, as `mailto:` |
+| `ANTHROPIC_API_KEY` | no | Lets a model read the messages the rules engine cannot. See [Reading email](#reading-email) |
+| `ASSISTANT_MODEL` | no | Defaults to `claude-sonnet-5` |
 | `ALLOW_DEV_LOGIN` | no | `"true"` enables the demo login and sample mail. Never in production |
 
 Never commit `.env`.
@@ -317,6 +319,28 @@ npm run lint
 npm run test
 npm run build
 ```
+
+### Reading email
+
+The Inbox turns messages into proposed events in two passes.
+
+The rules engine (`src/server/services/email-extractor.ts`) runs first. It is
+instant, free, offline, and right about anything with a shape — a flight
+confirmation, a Google Meet invitation, a booking. What it cannot read is the
+informal half: *"zullen we donderdag na de lunch even bijpraten?"* has no
+pattern to match.
+
+A model is asked only when the rules come back unsure, and its answer is used
+only when it is more confident than they were. That keeps spend proportional to
+the hard cases, and means an outage degrades to the behaviour the app had before
+rather than to nothing. Set `ANTHROPIC_API_KEY` to switch it on.
+
+What is sent: subject, sender and the preview line — never the full body, which
+the app does not store either. What comes back is a filled-in structure rather
+than prose, so a vague answer cannot arrive where a date is expected. Dates come
+back as a local wall clock and are converted here, because that conversion has
+to be right across a DST change and a model cannot be unit-tested;
+`tests/assistant.test.ts` pins both directions.
 
 ### Brand assets
 
