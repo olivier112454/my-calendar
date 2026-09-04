@@ -69,6 +69,13 @@ export async function refreshInbox(
           category: result.category,
           extraction: data.extraction,
           confidence: result.confidence,
+          // Refreshed too, though a sent message's headers never change: a row
+          // stored while the provider was returning them wrongly would keep the
+          // gap forever otherwise, and this makes the next sync repair it.
+          subject: message.subject,
+          fromName: message.fromName,
+          fromEmail: message.fromEmail,
+          snippet: message.snippet,
         },
       })
       imported += 1
