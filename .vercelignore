@@ -1,0 +1,10 @@
+# Secrets live in Vercel's own environment variables, never in the upload.
+.env
+.env.*
+!.env.example
+
+# Local-only artefacts.
+.pgdata/
+node_modules/
+.next/
+brand/

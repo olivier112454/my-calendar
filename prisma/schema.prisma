@@ -25,7 +25,13 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  /// The app's connection. In production this goes through a pooler, because a
+  /// serverless host opens one per request and would exhaust the database.
   url      = env("DATABASE_URL")
+  /// Migrations need a direct connection: a pooler in transaction mode discards
+  /// prepared statements between transactions, which breaks Prisma Migrate.
+  /// Locally both point at the same embedded server, which has no pooler.
+  directUrl = env("DIRECT_URL")
 }
 
 // ===========================================================================
