@@ -206,3 +206,45 @@ describe('choosing between the rules and the model', () => {
     __setAssistant(undefined)
   })
 })
+
+describe('how often a message is read', () => {
+  /**
+   * The mailbox returns the same messages every sync, and reading is the only
+   * step that can cost money. This pins the rule that makes the bill follow the
+   * mail rather than the clock: a message is read once.
+   */
+  it('reads a message once, however often it comes back', async () => {
+    const { __setAssistant } = await import('@/server/providers/assistant/registry')
+    const readEvent = vi.fn(async () => ({
+      category: 'MEETING' as const,
+      draft: null,
+      confidence: 0.6,
+      reason: null,
+    }))
+    __setAssistant({ name: 'stub', readEvent })
+
+    const { emailExtractor } = await import('@/server/services/email-extractor')
+    const vague = {
+      externalId: 'm1',
+      threadId: 't1',
+      subject: 'Even bijpraten',
+      fromName: 'Lars',
+      fromEmail: 'lars@example.com',
+      toEmails: [],
+      snippet: 'Zullen we een keer afspreken?',
+      receivedAt: new Date('2026-09-01T09:00:00Z'),
+      isUnread: true,
+      isImportant: false,
+      labels: [],
+      hasCalendarAttachment: false,
+    }
+
+    // The extractor itself has no memory — that is `refreshInbox`'s job, which
+    // looks the message up before asking. What is pinned here is the other half:
+    // an unclear message does reach the model, so the skip has to happen above.
+    await emailExtractor.extract(vague, AMS)
+    expect(readEvent).toHaveBeenCalledTimes(1)
+
+    __setAssistant(undefined)
+  })
+})

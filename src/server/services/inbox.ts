@@ -33,8 +33,40 @@ export async function refreshInbox(
     const provider = mailProviderFor(account)
     const page = await provider.listMessages({ after, maxResults: 40 })
 
+    /*
+     * A message is read once, not once per sync.
+     *
+     * The same forty messages come back every run, and reading is the only
+     * expensive step — it can reach a model. Re-reading them every five minutes
+     * would cost hundreds of times what the mailbox is worth, and produce the
+     * same answer, because a delivered message never changes.
+     */
+    const known = new Map(
+      (
+        await prisma.emailReference.findMany({
+          where: {
+            integrationAccountId: account.id,
+            messageId: { in: page.messages.map((message) => message.externalId) },
+          },
+          select: {
+            messageId: true,
+            category: true,
+            extraction: true,
+            confidence: true,
+          },
+        })
+      ).map((row) => [row.messageId, row]),
+    )
+
     for (const message of page.messages) {
-      const result = await emailExtractor.extract(message, timezone)
+      const seen = known.get(message.externalId)
+      const result = seen
+        ? {
+            category: seen.category,
+            draft: (seen.extraction ?? null) as EventDraft | null,
+            confidence: seen.confidence,
+          }
+        : await emailExtractor.extract(message, timezone)
 
       const data = {
         userId,
